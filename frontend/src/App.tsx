@@ -10,6 +10,8 @@ import { getProfile, googleAuth } from './lib/api'
 
 type User = { id: string; name: string; email: string; picture: string }
 
+const prismaBackgroundVideo = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_170732_8a9ccda6-5cff-4628-b164-059c500a2b41.mp4'
+
 declare global { interface Window { google?: any } }
 
 function GoogleSignIn({ onSignedIn }: { onSignedIn: (user: User, token: string) => void }) {
@@ -17,17 +19,31 @@ function GoogleSignIn({ onSignedIn }: { onSignedIn: (user: User, token: string) 
   useEffect(() => {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
     if (!clientId) { setError('Set VITE_GOOGLE_CLIENT_ID in frontend/.env.'); return }
+    let cancelled = false
+    let retryTimer: number | undefined
     const render = () => {
-      if (!window.google) return
-      window.google.accounts.id.initialize({ client_id: clientId, callback: async (response: { credential: string }) => {
+      if (cancelled || !window.google?.accounts?.id) return false
+      const target = document.getElementById('google-signin')
+      if (!target) return false
+      target.replaceChildren()
+      window.google.accounts.id.initialize({ client_id: clientId, callback: async (response: { credential?: string }) => {
+        if (!response.credential) { setError('Google did not return an identity token. Please try again.'); return }
         try { const result = await googleAuth(response.credential); onSignedIn(result.user, result.token) }
         catch (e) { setError((e as Error).message) }
       } })
-      const target = document.getElementById('google-signin')
-      if (target) window.google.accounts.id.renderButton(target, { theme: 'outline', size: 'large', width: 280 })
+      window.google.accounts.id.renderButton(target, { theme: 'outline', size: 'large', width: 280 })
+      return true
     }
-    if (window.google) render(); else window.addEventListener('google-loaded', render)
-    return () => window.removeEventListener('google-loaded', render)
+    const attemptRender = () => {
+      if (!render() && !cancelled) retryTimer = window.setTimeout(attemptRender, 100)
+    }
+    attemptRender()
+    window.addEventListener('google-loaded', attemptRender)
+    return () => {
+      cancelled = true
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+      window.removeEventListener('google-loaded', attemptRender)
+    }
   }, [onSignedIn])
   return <div className="landing-google-auth"><div id="google-signin" />{error && <p className="err">{error}</p>}</div>
 }
@@ -46,14 +62,21 @@ export default function App() {
   if (!user) return <Landing onStart={() => setShowSignIn(true)} googleSignIn={showSignIn ? <GoogleSignIn onSignedIn={signIn} /> : null} />
   return (
     <BrowserRouter>
-      <header className="top"><b className="logo">Learning Assistant</b>
-        <nav aria-label="Main"><NavLink to="/" end>Learn</NavLink><NavLink to="/history">History</NavLink><NavLink to="/profile">Profile</NavLink></nav>
-        <button className="profile-button" onClick={signOut} title={`Signed in as ${user.email}`}>
-          {user.picture && <img src={user.picture} alt="" />}<span>{user.name}</span><small>Sign out</small>
-        </button></header>
-      <main><Boundary><Routes>
-        <Route path="/" element={<Learn />} /><Route path="/history" element={<History />} />
-        <Route path="/session/:id" element={<Session />} /><Route path="/profile" element={<Profile />} />
-      </Routes></Boundary></main>
+      <div className="prisma-auth-shell">
+        <video className="prisma-auth-video" src={prismaBackgroundVideo} autoPlay loop muted playsInline preload="auto" aria-hidden="true" />
+        <div className="noise-overlay prisma-auth-noise" aria-hidden="true" />
+        <div className="prisma-auth-gradient" aria-hidden="true" />
+        <div className="prisma-auth-content">
+          <header className="top"><b className="logo">Learning Assistant</b>
+            <nav aria-label="Main"><NavLink to="/" end>Learn</NavLink><NavLink to="/history">History</NavLink><NavLink to="/profile">Profile</NavLink></nav>
+            <button className="profile-button" onClick={signOut} title={`Signed in as ${user.email}`}>
+              {user.picture && <img src={user.picture} alt="" />}<span>{user.name}</span><small>Sign out</small>
+            </button></header>
+          <main><Boundary><Routes>
+            <Route path="/" element={<Learn />} /><Route path="/history" element={<History />} />
+            <Route path="/session/:id" element={<Session />} /><Route path="/profile" element={<Profile />} />
+          </Routes></Boundary></main>
+        </div>
+      </div>
     </BrowserRouter>)
 }

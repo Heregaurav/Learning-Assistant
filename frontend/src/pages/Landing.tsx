@@ -1,67 +1,89 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 import type { ReactNode } from 'react'
+import { motion, useInView } from 'framer-motion'
+import { ArrowRight, Check } from 'lucide-react'
 
 type LandingProps = { onStart: () => void; googleSignIn?: ReactNode }
 
-const features = ['Personalized lessons', 'Flashcards that stick', 'Progress you can see']
+const heroVideo = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_170732_8a9ccda6-5cff-4628-b164-059c500a2b41.mp4'
+const featureVideo = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260406_133058_0504132a-0cf3-4450-a370-8ea3b05c95d4.mp4'
+
+const featureCards = [
+  { number: '01', title: 'Structured Lessons', items: ['Understand the topic step by step', 'Turn notes into clear explanations', 'Focus on the concepts that matter', 'Learn without information overload'] },
+  { number: '02', title: 'Flashcards & Quizzes', items: ['Turn concepts into flashcards', 'Test your understanding', 'Get instant quiz results', 'Find what you need to revise'] },
+  { number: '03', title: 'Progress That Matters', items: ['Track every learning session', 'See your scores over time', 'Follow progress across topics', 'Return to previous sessions'] },
+]
+
+const providers = [
+  ['01', 'GROQ', 'Fast AI-powered lesson generation'],
+  ['02', 'GEMINI', 'Flexible AI learning assistance'],
+  ['03', 'OPENROUTER', 'Access multiple AI models'],
+]
+
+const flow = [
+  ['01', 'INPUT', 'Give it a topic, notes, or lecture summary.'],
+  ['02', 'LEARN', 'Get a structured explanation built around the topic.'],
+  ['03', 'PRACTICE', 'Review flashcards and take the quiz.'],
+  ['04', 'REFLECT', 'See your score, progress, and areas to revisit.'],
+]
+
+const ease = [0.16, 1, 0.3, 1] as const
+
+function Reveal({ children, className = '', delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const visible = useInView(ref, { once: true, margin: '-80px' })
+  return <motion.div ref={ref} className={className} initial={{ y: 24, opacity: 0 }} animate={visible ? { y: 0, opacity: 1 } : {}} transition={{ duration: .8, delay, ease }}>{children}</motion.div>
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return <p className="mb-6 text-[10px] uppercase tracking-[.2em] text-primary sm:text-xs">{children}</p>
+}
 
 export default function Landing({ onStart, googleSignIn }: LandingProps) {
-  const [scrolled, setScrolled] = useState(false)
-  const sectionRef = useRef<HTMLElement>(null)
-
-  useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 24)
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
-
-  const scrollToExperience = () => sectionRef.current?.scrollIntoView({ behavior: 'smooth' })
-
-  return <div className="landing-page">
-    <header className={`landing-nav${scrolled ? ' is-scrolled' : ''}`}>
-      <a className="landing-brand" href="#top" aria-label="Learning Assistant home">
-        <span className="brand-mark">LA</span><span>Learning Assistant</span>
-      </a>
-      <button className="landing-nav-link" onClick={onStart}>Sign in</button>
-    </header>
-
-    <main id="top">
-      <section className="landing-hero" ref={sectionRef}>
-        <div className="landing-orbit orbit-one" />
-        <div className="landing-orbit orbit-two" />
-        <p className="landing-kicker">A calmer way to learn</p>
-        <h1>Turn curiosity<br /><em>into progress.</em></h1>
-        <p className="landing-intro">Bring your notes, questions, and big ideas. Get a focused lesson, useful practice, and a record of what you know.</p>
-        {googleSignIn ? <div className="landing-auth-step"><p className="landing-auth-label">Continue with Google to enter your learning space</p>{googleSignIn}<button className="landing-secondary" onClick={() => window.location.reload()}>← Return to landing</button></div> : <div className="landing-actions">
-          <button className="landing-primary" onClick={onStart}>Start learning <span aria-hidden="true">↗</span></button>
-          <button className="landing-secondary" onClick={scrollToExperience}>Explore the rhythm <span aria-hidden="true">↓</span></button>
-        </div>}
-        <div className="landing-note"><span className="note-dot" /> Built for steady, private progress</div>
-      </section>
-
-      <section className="landing-proof" aria-label="Learning assistant features">
-        <div className="proof-heading"><span>01</span><p>Make the next<br /><strong>idea click.</strong></p></div>
-        <div className="proof-grid">
-          {features.map((feature, index) => <article className="proof-card" key={feature}>
-            <span className="proof-number">0{index + 1}</span>
-            <h2>{feature}</h2>
-            <p>{index === 0 ? 'Meet every topic at the right depth, from first principles to the details that matter.' : index === 1 ? 'Practice the concepts you just met with quick recall and clear explanations.' : 'See your sessions, scores, and topics gather into a picture of your learning.'}</p>
-            <span className="proof-arrow" aria-hidden="true">↗</span>
-          </article>)}
+  return <div className="prisma-landing overflow-hidden bg-black text-[#E1E0CC]">
+    <section id="top" className="relative h-screen min-h-[680px] p-4 md:p-6">
+      <div className="relative h-full overflow-hidden rounded-2xl md:rounded-[2rem]">
+        <video className="absolute inset-0 h-full w-full object-cover" src={heroVideo} autoPlay loop muted playsInline aria-hidden="true" />
+        <div className="noise-overlay absolute inset-0 z-[1] opacity-[.7] mix-blend-overlay" />
+        <div className="absolute inset-0 z-[2] bg-gradient-to-b from-black/35 via-black/5 to-black/75" />
+        <nav className="hero-nav absolute left-1/2 top-0 z-10 flex -translate-x-1/2 gap-3 rounded-b-2xl bg-black px-4 py-2 sm:gap-5 sm:px-6 md:gap-9 md:rounded-b-3xl md:px-8 lg:gap-12" aria-label="Primary navigation">
+          {['Learn', 'History', 'Progress', 'About'].map(item => <a key={item} className="whitespace-nowrap text-[10px] text-[rgba(225,224,204,.8)] transition-colors hover:text-[#E1E0CC] sm:text-xs md:text-sm" href={item === 'Learn' ? '#top' : item === 'History' ? '#history' : item === 'Progress' ? '#progress' : '#about'}>{item}</a>)}
+        </nav>
+        <button className="hero-login absolute right-6 top-5 z-10 rounded-full border border-primary/40 bg-black/50 px-4 py-2 text-xs text-primary backdrop-blur-md transition-colors hover:bg-primary hover:text-black md:right-10 md:top-8" onClick={onStart}>Login</button>
+        <div className="hero-content">
+          <div className="hero-copy">
+            <Reveal><SectionLabel>A calmer way to learn</SectionLabel><h1 className="hero-heading">Turn what you know<br />into what you<br /><em className="font-serif not-italic text-primary">understand.</em></h1></Reveal>
+          </div>
+          <div className="hero-aside">
+            <Reveal delay={.2}><p className="mb-5 text-xs leading-[1.35] text-primary/75 sm:text-sm md:text-base">Bring your notes, topics, or lecture summaries. Get a structured lesson, flashcards, and a quiz designed around what you want to learn.</p><button className="group flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-black transition-all hover:gap-3 sm:text-base" onClick={onStart}>Start learning <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black transition-transform group-hover:scale-110"><ArrowRight size={17} className="text-primary" /></span></button>{googleSignIn ? <div className="mt-4 rounded-xl border border-primary/20 bg-black/65 p-3"><p className="mb-2 text-xs text-primary/70">Sign in with Google to continue your learning journey</p>{googleSignIn}</div> : <p className="mt-4 text-xs text-primary/60">Sign in with Google to continue your learning journey</p>}</Reveal>
+          </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section className="landing-statement">
-        <p className="landing-kicker">Your own learning space</p>
-        <h2>Learn deeply.<br /><span>Remember longer.</span></h2>
-        <button className="landing-primary" onClick={onStart}>Create your space <span aria-hidden="true">↗</span></button>
-      </section>
-    </main>
+    <section id="about" className="bg-black px-4 py-24 sm:px-6 md:py-36">
+      <Reveal className="mx-auto max-w-5xl">
+        <SectionLabel>The idea</SectionLabel>
+        <h2 className="max-w-4xl text-4xl leading-[.95] tracking-[-.04em] sm:text-5xl md:text-6xl lg:text-7xl">Learning should feel less like collecting information, and more like <em className="font-serif not-italic text-primary">understanding it.</em></h2>
+        <p className="mt-10 max-w-2xl text-sm leading-relaxed text-gray-400 md:ml-auto md:text-base">AI Learning Assistant turns your topics, notes, and lecture summaries into structured learning experiences. Learn the concept, test what you remember, see how you performed, and come back when you&apos;re ready to continue.</p>
+      </Reveal>
+    </section>
 
-    <footer className="landing-footer">
-      <div className="footer-marquee" aria-hidden="true"><span>LEARN WITH INTENTION　✦　TRACK YOUR MOMENTUM　✦　MAKE IT STICK　✦　</span><span>LEARN WITH INTENTION　✦　TRACK YOUR MOMENTUM　✦　MAKE IT STICK　✦　</span></div>
-      <div className="footer-bottom"><span>Learning Assistant © 2026</span><span>Made for curious minds</span><button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Back to top ↑</button></div>
-      <div className="footer-word" aria-hidden="true">LEARN</div>
-    </footer>
+    <section id="features" className="relative bg-[#101010] px-4 py-24 sm:px-6 md:py-32">
+      <div className="bg-noise pointer-events-none absolute inset-0 opacity-[.12]" />
+      <div className="relative mx-auto max-w-6xl"><Reveal><SectionLabel>Built around understanding</SectionLabel><h2 className="max-w-3xl text-4xl leading-[.95] tracking-[-.04em] sm:text-5xl md:text-6xl">Everything you need to <em className="font-serif not-italic text-primary">actually learn.</em></h2><p className="mt-6 max-w-xl text-sm leading-relaxed text-gray-400 md:text-base">From your first explanation to your next revision, each session is built around understanding and recall.</p></Reveal>
+        <div className="mt-14 grid gap-3 md:grid-cols-3"><motion.article className="relative min-h-[390px] overflow-hidden rounded-2xl bg-[#212121] md:min-h-[500px]" initial={{ opacity: 0, scale: .96 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true, margin: '-80px' }} transition={{ duration: .8, ease }}><video className="absolute inset-0 h-full w-full object-cover" src={featureVideo} autoPlay loop muted playsInline aria-hidden="true" /><div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/15 to-transparent" /><div className="absolute bottom-6 left-6 right-6"><span className="text-xs text-primary/70">THE LEARNING LOOP</span><h3 className="mt-3 text-2xl">Explanation → practice → progress</h3></div></motion.article>{featureCards.map((card, index) => <motion.article key={card.title} className="flex min-h-[390px] flex-col rounded-2xl border border-white/10 bg-[#212121] p-6 md:min-h-[500px]" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-80px' }} transition={{ duration: .8, delay: (index + 1) * .12, ease }}><span className="text-xs text-primary/60">{card.number}</span><h3 className="mt-16 max-w-[10ch] text-2xl leading-none">{card.title}</h3><ul className="mt-8 space-y-3 text-sm leading-snug text-gray-400">{card.items.map(item => <li key={item} className="flex gap-2"><Check size={15} className="mt-0.5 shrink-0 text-primary" />{item}</li>)}</ul><a className="mt-auto flex items-center gap-2 pt-8 text-sm text-primary" href="#top">Explore the flow <ArrowRight size={15} /></a></motion.article>)}</div>
+      </div>
+    </section>
+
+    <section id="progress" className="bg-black px-4 py-24 sm:px-6 md:py-36"><div className="mx-auto grid max-w-6xl gap-16 md:grid-cols-2 md:items-end"><Reveal><SectionLabel>Powered by AI</SectionLabel><h2 className="text-4xl leading-[.95] tracking-[-.04em] sm:text-5xl md:text-6xl">One topic.<br /><em className="font-serif not-italic text-primary">A complete learning path.</em></h2><p className="mt-8 max-w-md text-sm leading-relaxed text-gray-400 md:text-base">Choose the AI provider that works for you and let the assistant turn unstructured information into a structured learning session.</p></Reveal><div className="space-y-0">{providers.map(([number, name, description], index) => <Reveal key={name} delay={index * .1} className="border-t border-white/15 py-5"><div className="grid grid-cols-[3rem_1fr] gap-4"><span className="text-xs text-primary/50">{number}</span><div><h3 className="text-lg tracking-[.08em]">{name}</h3><p className="mt-1 text-sm text-gray-500">{description}</p></div></div></Reveal>)}</div></div></section>
+
+    <section className="bg-[#101010] px-4 py-24 sm:px-6 md:py-32"><div className="mx-auto max-w-6xl"><Reveal><h2 className="text-4xl tracking-[-.04em] sm:text-5xl md:text-6xl">From topic to <em className="font-serif not-italic text-primary">understanding.</em></h2></Reveal><div className="mt-16 grid gap-0 border-t border-white/15 md:grid-cols-4">{flow.map(([number, name, description], index) => <Reveal key={name} delay={index * .1} className="border-b border-white/15 py-6 md:border-b-0 md:border-r md:px-5 md:first:pl-0 md:last:border-r-0"><span className="text-xs text-primary/50">{number}</span><h3 className="mt-10 text-sm tracking-[.12em]">{name}</h3><p className="mt-4 max-w-[18ch] text-sm leading-relaxed text-gray-400">{description}</p></Reveal>)}</div></div></section>
+
+    <section id="history" className="bg-black px-4 py-24 sm:px-6 md:py-36"><div className="mx-auto grid max-w-6xl gap-14 md:grid-cols-2"><Reveal><SectionLabel>Your progress</SectionLabel><h2 className="max-w-xl text-4xl leading-[.95] tracking-[-.04em] sm:text-5xl md:text-6xl">Learning is a process, not a single session.</h2><p className="mt-8 max-w-lg text-sm leading-relaxed text-gray-400 md:text-base">Every completed session contributes to your topic progress. Your history stays with you, so you can return to what you&apos;ve already learned and keep building from there.</p></Reveal><Reveal delay={.15} className="border-t border-white/15 pt-6"><h2 className="max-w-md text-3xl leading-tight">Never lose where you left off.</h2><p className="mt-5 max-w-md text-sm leading-relaxed text-gray-400">Your completed learning sessions are saved automatically. Return to previous topics, review your results, and continue learning without starting over.</p><button className="mt-8 flex items-center gap-2 rounded-full border border-primary/40 px-5 py-3 text-sm text-primary transition-colors hover:bg-primary hover:text-black" onClick={onStart}>View learning history <ArrowRight size={16} /></button></Reveal></div></section>
+
+    <section className="bg-primary px-4 py-24 text-black sm:px-6 md:py-32"><div className="mx-auto max-w-5xl"><Reveal><SectionLabel>Keep learning</SectionLabel><h2 className="max-w-4xl text-5xl leading-[.88] tracking-[-.06em] sm:text-6xl md:text-8xl">What do you want to understand?</h2><p className="mt-8 text-sm text-black/65 md:text-base">Start with a topic. We&apos;ll take it from there.</p><button className="mt-8 flex items-center gap-2 rounded-full bg-black px-5 py-3 text-sm text-primary transition-transform hover:translate-x-1" onClick={onStart}>Start learning <ArrowRight size={16} /></button></Reveal></div></section>
+
+    <footer className="bg-black px-4 py-10 text-xs text-gray-500 sm:px-6"><div className="mx-auto flex max-w-6xl flex-col gap-3 md:flex-row md:items-center md:justify-between"><strong className="text-sm text-primary">AI Learning Assistant</strong><span>Learn • Practice • Improve</span><span>Built with React, FastAPI, MongoDB & AI</span><span>© 2026 AI Learning Assistant</span></div></footer>
   </div>
 }
