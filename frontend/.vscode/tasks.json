@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run frontend dev server",
+			"type": "shell",
+			"command": "npm run dev -- --host 0.0.0.0 --port 5173",
+			"args": [],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}

@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pydantic>=2
+pymongo[srv]
+openai
+python-dotenv
+google-auth
+requests
