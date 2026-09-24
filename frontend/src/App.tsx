@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
+import { Pause, Play, Sun } from 'lucide-react'
 import Learn from './pages/Learn'
 import History from './pages/History'
 import Session from './pages/Session'
@@ -52,26 +53,41 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null)
   const [checking, setChecking] = useState(true)
   const [showSignIn, setShowSignIn] = useState(false)
+  const [plainBackground, setPlainBackground] = useState(false)
+  const [videoPaused, setVideoPaused] = useState(false)
+  const backgroundVideoRef = useRef<HTMLVideoElement>(null)
   useEffect(() => {
     if (!localStorage.getItem('google_credential')) { setChecking(false); return }
     getProfile().then(profile => setUser({ id: profile.id, name: profile.name, email: profile.email, picture: profile.picture })).catch(() => { localStorage.removeItem('google_credential'); setUser(null) }).finally(() => setChecking(false))
   }, [])
   const signIn = (next: User, token: string) => { localStorage.setItem('google_credential', token); setUser(next) }
   const signOut = () => { localStorage.removeItem('google_credential'); setUser(null) }
+  const toggleVideo = () => {
+    const video = backgroundVideoRef.current
+    if (!video) return
+    if (video.paused) { void video.play(); setVideoPaused(false) }
+    else { video.pause(); setVideoPaused(true) }
+  }
   if (checking) return <div className="state"><p>Checking your sign-in…</p></div>
   if (!user) return <Landing onStart={() => setShowSignIn(true)} googleSignIn={showSignIn ? <GoogleSignIn onSignedIn={signIn} /> : null} />
   return (
     <BrowserRouter>
-      <div className="prisma-auth-shell">
-        <video className="prisma-auth-video" src={prismaBackgroundVideo} autoPlay loop muted playsInline preload="auto" aria-hidden="true" />
+      <div className={`prisma-auth-shell${plainBackground ? ' is-plain' : ''}`}>
+        <video ref={backgroundVideoRef} className="prisma-auth-video" src={prismaBackgroundVideo} autoPlay loop muted playsInline preload="auto" aria-hidden="true" />
         <div className="noise-overlay prisma-auth-noise" aria-hidden="true" />
         <div className="prisma-auth-gradient" aria-hidden="true" />
         <div className="prisma-auth-content">
           <header className="top"><b className="logo">Learning Assistant</b>
             <nav aria-label="Main"><NavLink to="/" end>Learn</NavLink><NavLink to="/history">History</NavLink><NavLink to="/profile">Profile</NavLink></nav>
-            <button className="profile-button" onClick={signOut} title={`Signed in as ${user.email}`}>
-              {user.picture && <img src={user.picture} alt="" />}<span>{user.name}</span><small>Sign out</small>
-            </button></header>
+            <div className="nav-actions">
+              <div className="background-controls" aria-label="Background controls">
+                <button className="background-control" onClick={() => setPlainBackground(!plainBackground)} title={plainBackground ? 'Use cinematic background' : 'Use simple background'} aria-label={plainBackground ? 'Use cinematic background' : 'Use simple black and cream background'}><Sun size={15} /><span>{plainBackground ? 'Cinematic' : 'Plain'}</span></button>
+                <button className="background-control" onClick={toggleVideo} title={videoPaused ? 'Play background video' : 'Pause background video'} aria-label={videoPaused ? 'Play background video' : 'Pause background video'}><span>{videoPaused ? <Play size={15} /> : <Pause size={15} />}</span></button>
+              </div>
+              <button className="profile-button" onClick={signOut} title={`Signed in as ${user.email}`}>
+                {user.picture && <img src={user.picture} alt="" />}<span>{user.name}</span><small>Sign out</small>
+              </button>
+            </div></header>
           <main><Boundary><Routes>
             <Route path="/" element={<Learn />} /><Route path="/history" element={<History />} />
             <Route path="/session/:id" element={<Session />} /><Route path="/profile" element={<Profile />} />
