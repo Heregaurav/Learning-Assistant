@@ -56,14 +56,22 @@ main {
 .logo {
   display: inline-flex;
   align-items: center;
+  gap: 10px;
+  height: 40px;
+  overflow: visible;
+  border: 1px solid rgba(225, 224, 204, 0.25);
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 4px 12px 4px 4px;
   color: inherit;
   text-decoration: none;
+  font-weight: 700;
 }
 .logo img {
   display: block;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
   object-fit: cover;
 }
 .top nav {
@@ -591,37 +599,41 @@ blockquote {
     border-color: #fff;
   }
   .prisma-auth-shell .top {
-    grid-template-columns: minmax(0, 1fr) auto;
+    position: fixed;
+    top: 4px;
+    bottom: auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     left: 0;
     right: 0;
     width: auto;
     max-width: none;
     margin: 0;
-    border-right: 0;
-    border-bottom: 0;
-    border-left: 0;
-    border-radius: 20px 20px 0 0;
+    border: 1px solid rgba(225, 224, 204, 0.14);
+    border-radius: 18px;
     padding: 10px max(12px, env(safe-area-inset-right))
-      max(10px, env(safe-area-inset-bottom))
+      10px
       max(12px, env(safe-area-inset-left));
   }
   .prisma-auth-shell .top .logo {
     display: inline-flex;
   }
   .prisma-auth-shell .top nav {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(4px, 2vw, 12px);
     width: 100%;
-    justify-content: stretch;
+    overflow: visible;
   }
   .prisma-auth-shell .top nav a {
     min-width: 0;
-    padding: 4px 2px;
+    padding: 6px 5px;
     text-align: center;
+    font-size: clamp(10px, 2.8vw, 12px);
   }
   .prisma-auth-shell main {
-    padding-bottom: 9rem;
+    padding-top: 5rem;
+    padding-bottom: 2rem;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1487,32 +1499,33 @@ blockquote {
     gap: 1rem;
   }
   .prisma-auth-shell .logo {
-    width: 30px;
+    width: auto;
   }
 }
 @media (max-width: 760px) {
   .prisma-auth-shell .top {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 8px;
-    padding: 10px 12px;
+    gap: 6px;
   }
   .prisma-auth-shell .top nav {
-    justify-content: flex-start;
-    gap: 12px;
-    overflow-x: auto;
     white-space: nowrap;
   }
-  .prisma-auth-shell .top nav::-webkit-scrollbar {
-    display: none;
-  }
   .prisma-auth-shell .nav-actions {
-    gap: 5px;
+    gap: 4px;
   }
-  .prisma-auth-shell .background-control span {
+  .prisma-auth-shell .background-control-label {
     display: none;
   }
   .prisma-auth-shell .background-control {
-    padding: 7px;
+    width: 30px;
+    height: 30px;
+    min-height: 30px;
+    justify-content: center;
+    padding: 6px;
+  }
+  .prisma-auth-shell .background-control-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .prisma-auth-shell .profile-button span,
   .prisma-auth-shell .profile-button small {
@@ -1525,17 +1538,12 @@ blockquote {
 }
 @media (max-width: 480px) {
   .prisma-auth-shell .top {
-    border-radius: 20px 20px 0 0;
+    border-radius: 16px;
   }
   .prisma-auth-shell .logo {
-    width: 28px;
+    width: auto;
   }
-  .prisma-auth-shell .top nav {
-    gap: 10px;
-  }
-  .prisma-auth-shell .top nav a {
-    font-size: 12px;
-  }
+  .prisma-auth-shell .top nav { gap: 2px; }
   .prisma-auth-shell main {
     padding-right: 10px;
     padding-left: 10px;
@@ -1577,6 +1585,41 @@ blockquote {
 }
 .landing-page button {
   cursor: pointer;
+}
+.landing-logo {
+  position: absolute;
+  top: 1.25rem;
+  left: 1.5rem;
+  z-index: 10;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+
+  width: auto;
+  height: 40px;
+
+  overflow: visible;
+
+  border: 1px solid rgba(225, 224, 204, 0.25);
+  border-radius: 11px;
+
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+
+  padding: 4px 12px 4px 4px;
+
+  color: #e1e0cc;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.landing-logo img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 7px;
+  display: block;
 }
 .landing-nav {
   position: fixed;

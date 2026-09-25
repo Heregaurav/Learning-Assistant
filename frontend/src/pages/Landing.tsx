@@ -113,6 +113,10 @@ export default function Landing({ onStart, googleSignIn }: LandingProps) {
           />
           <div className="noise-overlay absolute inset-0 z-[1] opacity-[.7] mix-blend-overlay" />
           <div className="absolute inset-0 z-[2] bg-gradient-to-b from-black/35 via-black/5 to-black/75" />
+          <a className="landing-logo" href="#top" aria-label="Curiosity home">
+            <img src="/curiosity2.jpg" alt="Curiosity" />
+            curiosity
+          </a>
           <nav
             className="hero-nav absolute left-1/2 top-0 z-10 flex -translate-x-1/2 gap-3 rounded-b-2xl bg-black px-4 py-2 sm:gap-5 sm:px-6 md:gap-9 md:rounded-b-3xl md:px-8 lg:gap-12"
             aria-label="Primary navigation"
@@ -135,6 +139,7 @@ export default function Landing({ onStart, googleSignIn }: LandingProps) {
               </a>
             ))}
           </nav>
+
           <button
             className="hero-login absolute right-6 top-5 z-10 rounded-full border border-primary/40 bg-black/50 px-4 py-2 text-xs text-primary backdrop-blur-md transition-colors hover:bg-primary hover:text-black md:right-10 md:top-8"
             onClick={handleStart}

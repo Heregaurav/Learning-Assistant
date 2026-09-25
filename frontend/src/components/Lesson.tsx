@@ -27,6 +27,10 @@ export default function Lesson({ lesson, sessionId, initialAnswers }: Props) {
       const next = validateLesson(result.learningContent);
       if (!next) throw new Error("The refined lesson had an unexpected format.");
       setCurrentLesson(next);
+      localStorage.setItem(
+        "curiosity.active-lesson",
+        JSON.stringify({ id: sessionId, lesson: next }),
+      );
       setRefinement("");
     } catch (error) {
       setRefineError((error as Error).message);

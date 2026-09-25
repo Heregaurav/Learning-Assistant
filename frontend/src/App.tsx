@@ -116,6 +116,7 @@ export default function App() {
   };
   const signOut = () => {
     localStorage.removeItem("google_credential");
+    localStorage.removeItem("curiosity.active-lesson");
     setUser(null);
   };
   const toggleVideo = () => {
@@ -162,6 +163,7 @@ export default function App() {
           <header className="top">
             <a className="logo" href="/" aria-label="Curiosity home">
               <img src="/curiosity2.jpg" alt="Curiosity" />
+              <span>curiosity</span>
             </a>
             <nav aria-label="Main">
               <NavLink to="/" end>
@@ -190,7 +192,9 @@ export default function App() {
                   }
                 >
                   <Sun size={15} />
-                  <span>{plainBackground ? "Cinematic" : "Plain"}</span>
+                  <span className="background-control-label">
+                    {plainBackground ? "Cinematic" : "Plain"}
+                  </span>
                 </button>
                 <button
                   className="background-control"
@@ -206,7 +210,7 @@ export default function App() {
                       : "Pause background video"
                   }
                 >
-                  <span>
+                  <span className="background-control-icon">
                     {videoPaused ? <Play size={15} /> : <Pause size={15} />}
                   </span>
                 </button>

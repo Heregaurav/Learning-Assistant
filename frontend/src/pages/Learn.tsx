@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUp, BookOpen, Search } from "lucide-react";
 import { learnStream, ApiError, MSG } from "../lib/api";
 import { validateLesson } from "../lib/validate";
@@ -26,14 +26,34 @@ const PROVIDERS = [
     model: "gemini-flash-lite-latest",
   },
 ];
+const ACTIVE_LESSON_KEY = "curiosity.active-lesson";
 
 export default function Learn() {
   const [text, setText] = useState(""),
     [difficulty, setDifficulty] = useState("beginner");
   const [providerModel, setProviderModel] = useState(PROVIDERS[0].value);
-  const [state, setState] = useState<S>({ s: "idle" });
+  const [state, setState] = useState<S>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(ACTIVE_LESSON_KEY) ?? "null");
+      const lesson = validateLesson(saved?.lesson);
+      return lesson && typeof saved?.id === "string"
+        ? { s: "success", id: saved.id, lesson }
+        : { s: "idle" };
+    } catch {
+      return { s: "idle" };
+    }
+  });
   const reqId = useRef(0),
     ctl = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (state.s === "success") {
+      localStorage.setItem(
+        ACTIVE_LESSON_KEY,
+        JSON.stringify({ id: state.id, lesson: state.lesson }),
+      );
+    }
+  }, [state]);
 
   async function generate() {
     if (text.trim().length < 3) return;
