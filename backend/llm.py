@@ -64,8 +64,8 @@ PROVIDERS = {
     "gemini": {
         "key": "GEMINI_API_KEY",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "default_model": "gemini-2.0-flash",
-        "models": {"gemini-2.0-flash"},
+        "default_model": "gemini-flash-lite-latest",
+        "models": {"gemini-flash-lite-latest"},
     },
     "openrouter": {
         "key": "OPENROUTER_API_KEY",
@@ -87,22 +87,44 @@ def client(provider: str) -> OpenAI:
         if provider == "groq":
             api_key = api_key or os.getenv("LLM_API_KEY")
         if not api_key:
-            raise LLMError("missing_api_key", f"Set {config['key']} in backend/.env to use this provider.")
-        base_url = os.getenv("LLM_BASE_URL") if provider == "groq" else config["base_url"]
-        headers = {"HTTP-Referer": "http://localhost:5173", "X-Title": "AI Learning Assistant"} if provider == "openrouter" else None
-        _clients[provider] = OpenAI(api_key=api_key, base_url=base_url, timeout=60, default_headers=headers)
+            raise LLMError(
+                "missing_api_key",
+                f"Set {config['key']} in backend/.env to use this provider.",
+            )
+        base_url = (
+            os.getenv("LLM_BASE_URL") if provider == "groq" else config["base_url"]
+        )
+        headers = (
+            {
+                "HTTP-Referer": "http://localhost:5173",
+                "X-Title": "AI Learning Assistant",
+            }
+            if provider == "openrouter"
+            else None
+        )
+        _clients[provider] = OpenAI(
+            api_key=api_key, base_url=base_url, timeout=60, default_headers=headers
+        )
     return _clients[provider]
 
 
 def _normalize_section(section, index):
     if not isinstance(section, dict):
-        return {"title": f"Section {index + 1}", "content": "Key ideas for this topic.", "examples": []}
+        return {
+            "title": f"Section {index + 1}",
+            "content": "Key ideas for this topic.",
+            "examples": [],
+        }
     examples = section.get("examples") or []
     if not isinstance(examples, list):
         examples = []
     return {
         "title": str(section.get("title") or f"Section {index + 1}"),
-        "content": str(section.get("content") or section.get("overview") or "Key ideas for this topic."),
+        "content": str(
+            section.get("content")
+            or section.get("overview")
+            or "Key ideas for this topic."
+        ),
         "examples": [str(x) for x in examples[:3] if str(x).strip()],
     }
 
@@ -112,16 +134,28 @@ def _normalize_flashcards(cards, topic):
     if isinstance(cards, list):
         for i, card in enumerate(cards[:8], start=1):
             if isinstance(card, dict):
-                question = str(card.get("question") or f"What is an important fact about {topic}?")
-                answer = str(card.get("answer") or "This concept helps explain the topic.")
-                normalized.append({"id": str(card.get("id") or f"card-{i}"), "question": question, "answer": answer})
+                question = str(
+                    card.get("question") or f"What is an important fact about {topic}?"
+                )
+                answer = str(
+                    card.get("answer") or "This concept helps explain the topic."
+                )
+                normalized.append(
+                    {
+                        "id": str(card.get("id") or f"card-{i}"),
+                        "question": question,
+                        "answer": answer,
+                    }
+                )
     while len(normalized) < 8:
         idx = len(normalized) + 1
-        normalized.append({
-            "id": f"card-{idx}",
-            "question": f"What is a key idea related to {topic}?",
-            "answer": "It is an important concept that helps explain the topic in a simple way.",
-        })
+        normalized.append(
+            {
+                "id": f"card-{idx}",
+                "question": f"What is a key idea related to {topic}?",
+                "answer": "It is an important concept that helps explain the topic in a simple way.",
+            }
+        )
     return normalized[:8]
 
 
@@ -136,45 +170,81 @@ def _normalize_quiz(quiz, topic):
                 clean_options = [str(opt) for opt in options if str(opt).strip()]
                 while len(clean_options) < 4:
                     clean_options.append(f"Option {len(clean_options) + 1}")
-                correct = str(q.get("correctAnswer") or (clean_options[0] if clean_options else "Option 1"))
+                correct = str(
+                    q.get("correctAnswer")
+                    or (clean_options[0] if clean_options else "Option 1")
+                )
                 if correct not in clean_options:
                     correct = clean_options[0]
-                normalized.append({
-                    "id": str(q.get("id") or f"q-{i}"),
-                    "question": str(q.get("question") or f"Which statement best matches {topic}?"),
-                    "options": clean_options[:4],
-                    "correctAnswer": correct,
-                    "explanation": str(q.get("explanation") or "This answer is correct because it matches the core idea."),
-                })
+                normalized.append(
+                    {
+                        "id": str(q.get("id") or f"q-{i}"),
+                        "question": str(
+                            q.get("question")
+                            or f"Which statement best matches {topic}?"
+                        ),
+                        "options": clean_options[:4],
+                        "correctAnswer": correct,
+                        "explanation": str(
+                            q.get("explanation")
+                            or "This answer is correct because it matches the core idea."
+                        ),
+                    }
+                )
     return normalized[:8]
 
 
 def _quiz_needs_generation(quiz) -> bool:
     if not isinstance(quiz, list) or len(quiz) < 8:
         return True
-    questions = [str(item.get("question", "")) for item in quiz if isinstance(item, dict)]
-    return len(questions) < 8 or all(question.startswith("Which statement best") for question in questions)
+    questions = [
+        str(item.get("question", "")) for item in quiz if isinstance(item, dict)
+    ]
+    return len(questions) < 8 or all(
+        question.startswith("Which statement best") for question in questions
+    )
 
 
 def _repair_lesson(data, topic_hint):
     if not isinstance(data, dict):
         raise ValueError("lesson payload is not an object")
 
-    explanation = data.get("explanation") if isinstance(data.get("explanation"), dict) else {}
-    sections = explanation.get("sections") if isinstance(explanation.get("sections"), list) else []
+    explanation = (
+        data.get("explanation") if isinstance(data.get("explanation"), dict) else {}
+    )
+    sections = (
+        explanation.get("sections")
+        if isinstance(explanation.get("sections"), list)
+        else []
+    )
     normalized_sections = [_normalize_section(s, i) for i, s in enumerate(sections[:5])]
     if not normalized_sections:
-        overview = str(explanation.get("overview") or data.get("overview") or topic_hint)
-        normalized_sections = [{"title": "Overview", "content": overview, "examples": []}]
+        overview = str(
+            explanation.get("overview") or data.get("overview") or topic_hint
+        )
+        normalized_sections = [
+            {"title": "Overview", "content": overview, "examples": []}
+        ]
 
-    overview = str(explanation.get("overview") or data.get("overview") or " ".join(s["content"] for s in normalized_sections[:2]))
-    key_takeaways = explanation.get("keyTakeaways") if isinstance(explanation.get("keyTakeaways"), list) and explanation.get("keyTakeaways") else [
-        s["content"] for s in normalized_sections[:3]
-    ]
-    common_mistakes = explanation.get("commonMistakes") if isinstance(explanation.get("commonMistakes"), list) else [
-        "Confusing the main idea with a detail.",
-        "Forgetting to connect the concept to an example.",
-    ]
+    overview = str(
+        explanation.get("overview")
+        or data.get("overview")
+        or " ".join(s["content"] for s in normalized_sections[:2])
+    )
+    key_takeaways = (
+        explanation.get("keyTakeaways")
+        if isinstance(explanation.get("keyTakeaways"), list)
+        and explanation.get("keyTakeaways")
+        else [s["content"] for s in normalized_sections[:3]]
+    )
+    common_mistakes = (
+        explanation.get("commonMistakes")
+        if isinstance(explanation.get("commonMistakes"), list)
+        else [
+            "Confusing the main idea with a detail.",
+            "Forgetting to connect the concept to an example.",
+        ]
+    )
 
     repaired = {
         "topic": str(data.get("topic") or topic_hint),
@@ -184,17 +254,25 @@ def _repair_lesson(data, topic_hint):
             "keyTakeaways": [str(x) for x in key_takeaways[:5] if str(x).strip()],
             "commonMistakes": [str(x) for x in common_mistakes[:5] if str(x).strip()],
         },
-        "flashcards": _normalize_flashcards(data.get("flashcards"), str(data.get("topic") or topic_hint)),
+        "flashcards": _normalize_flashcards(
+            data.get("flashcards"), str(data.get("topic") or topic_hint)
+        ),
         "quiz": _normalize_quiz(data.get("quiz"), str(data.get("topic") or topic_hint)),
     }
     if not repaired["explanation"]["keyTakeaways"]:
-        repaired["explanation"]["keyTakeaways"] = ["This lesson covers the core concept clearly."]
+        repaired["explanation"]["keyTakeaways"] = [
+            "This lesson covers the core concept clearly."
+        ]
     if not repaired["explanation"]["commonMistakes"]:
-        repaired["explanation"]["commonMistakes"] = ["Mixing up the main idea with a detail."]
+        repaired["explanation"]["commonMistakes"] = [
+            "Mixing up the main idea with a detail."
+        ]
     return repaired
 
 
-def generate_lesson(content: str, difficulty: str, provider: str = "groq", model: str | None = None) -> Lesson:
+def generate_lesson(
+    content: str, difficulty: str, provider: str = "groq", model: str | None = None
+) -> Lesson:
     config = PROVIDERS.get(provider)
     model = model or (config["default_model"] if config else None)
     if not config or model not in config["models"]:
@@ -204,10 +282,11 @@ def generate_lesson(content: str, difficulty: str, provider: str = "groq", model
         {"role": "user", "content": f"Difficulty: {difficulty}\nInput:\n{content}"},
     ]
 
-    def request(messages, max_tokens=1000):
+    def request(messages, max_tokens=3000):
         try:
             return client(provider).chat.completions.create(
-                model=model, temperature=0.2,
+                model=model,
+                temperature=0.2,
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"},
                 messages=messages,
@@ -236,15 +315,27 @@ def generate_lesson(content: str, difficulty: str, provider: str = "groq", model
 
     if _quiz_needs_generation(data.get("quiz")):
         try:
-            quiz_response = request([
-                {"role": "system", "content": QUIZ_SYSTEM},
-                {"role": "user", "content": f"Topic or notes:\n{content}"},
-            ])
-            quiz_raw = (quiz_response.choices[0].message.content or "").strip() if quiz_response.choices else ""
-            quiz_data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", quiz_raw).strip())
-            data["quiz"] = quiz_data.get("quiz") if isinstance(quiz_data, dict) else None
+            quiz_response = request(
+                [
+                    {"role": "system", "content": QUIZ_SYSTEM},
+                    {"role": "user", "content": f"Topic or notes:\n{content}"},
+                ]
+            )
+            quiz_raw = (
+                (quiz_response.choices[0].message.content or "").strip()
+                if quiz_response.choices
+                else ""
+            )
+            quiz_data = json.loads(
+                re.sub(r"^```(?:json)?\s*|\s*```$", "", quiz_raw).strip()
+            )
+            data["quiz"] = (
+                quiz_data.get("quiz") if isinstance(quiz_data, dict) else None
+            )
         except (json.JSONDecodeError, TypeError, ValueError):
-            raise LLMError("bad_schema", "The model did not return topic-specific quiz questions.")
+            raise LLMError(
+                "bad_schema", "The model did not return topic-specific quiz questions."
+            )
 
     try:
         payload = _repair_lesson(data, content.strip()[:80])
@@ -258,10 +349,12 @@ def generate_lesson(content: str, difficulty: str, provider: str = "groq", model
             f"\n\nInput: {content}\nDifficulty: {difficulty}\nPrevious output:\n{raw}"
         )
         try:
-            r2 = request([
-                {"role": "system", "content": SYSTEM},
-                {"role": "user", "content": repair},
-            ])
+            r2 = request(
+                [
+                    {"role": "system", "content": SYSTEM},
+                    {"role": "user", "content": repair},
+                ]
+            )
             raw2 = (r2.choices[0].message.content or "").strip() if r2.choices else ""
             raw2 = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw2).strip()
             data2 = json.loads(raw2)
