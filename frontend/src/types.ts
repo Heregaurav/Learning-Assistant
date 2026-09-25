@@ -14,7 +14,12 @@ export type Lesson = {
     correctAnswer: string;
     explanation: string;
   }[];
+  blocks: ContentBlock[];
 };
+export type ContentBlock =
+  | { kind: "card"; title: string; body: string }
+  | { kind: "checklist"; title: string; items: string[] }
+  | { kind: "chart"; title: string; labels: string[]; values: number[] };
 export type SavedSession = {
   id: string;
   topic: string;

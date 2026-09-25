@@ -1,9 +1,13 @@
 import { Component, ReactNode } from "react";
-export const LoadingState = () => (
+export const LoadingState = ({ stage = "understanding" }: { stage?: string }) => (
   <div className="state" role="status" aria-live="polite">
     <h2>Preparing your lesson…</h2>
     <p>
-      Reading your input, then writing the explanation, flashcards and quiz.
+      {stage === "building"
+        ? "Building explanations, study blocks, flashcards and quiz."
+        : stage === "ready"
+          ? "Your lesson is ready."
+          : "Reading your input and planning the lesson."}
       This can take up to a minute.
     </p>
     <div className="bar">

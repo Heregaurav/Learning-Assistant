@@ -226,6 +226,52 @@ main {
   padding: 0.3rem 0.6rem;
   font-size: 0.72rem;
 }
+.prisma-auth-shell .profile-topic-row {
+  align-items: center;
+}
+.prisma-auth-shell .profile-topic-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+.prisma-auth-shell .retest-btn {
+  min-height: 30px;
+  border: 1px solid rgba(225, 224, 204, 0.3);
+  border-radius: 999px;
+  background: rgba(225, 224, 204, 0.1);
+  padding: 5px 11px;
+  color: #e1e0cc;
+  font: 500 0.7rem/1 Almarai, sans-serif;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+.prisma-auth-shell .retest-btn:hover:not(:disabled) {
+  border-color: #dedbc8;
+  background: #dedbc8;
+  color: #101010;
+}
+.prisma-auth-shell .retest-btn:disabled {
+  border-color: rgba(225, 224, 204, 0.12);
+  background: rgba(225, 224, 204, 0.04);
+  color: rgba(225, 224, 204, 0.42);
+  cursor: not-allowed;
+}
+.prisma-auth-shell .history-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-bottom: 1px solid rgba(225, 224, 204, 0.22);
+}
+.prisma-auth-shell .history-row .row.link {
+  min-width: 0;
+  flex: 1;
+  border-bottom: 0;
+}
+.prisma-auth-shell .history-retest {
+  flex: 0 0 auto;
+  margin-right: 0.25rem;
+}
 .prisma-auth-shell .topic-empty {
   display: grid;
   min-height: 92px;
@@ -534,6 +580,36 @@ blockquote {
   }
   .top a.active {
     border-color: #fff;
+  }
+  .prisma-auth-shell .top {
+    grid-template-columns: minmax(0, 1fr) auto;
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 20px 20px 0 0;
+    padding: 10px max(12px, env(safe-area-inset-right))
+      max(10px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
+  }
+  .prisma-auth-shell .top nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    width: 100%;
+    justify-content: stretch;
+  }
+  .prisma-auth-shell .top nav a {
+    min-width: 0;
+    padding: 4px 2px;
+    text-align: center;
+  }
+  .prisma-auth-shell main {
+    padding-bottom: 9rem;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -879,6 +955,108 @@ blockquote {
   font-size: clamp(1rem, 1.4vw, 1.2rem);
   line-height: 1.55;
 }
+.prisma-auth-shell .refine-form {
+  display: flex;
+  gap: 0.6rem;
+  max-width: 680px;
+  margin-top: 1.5rem;
+}
+.prisma-auth-shell .refine-form input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid rgba(225, 224, 204, 0.2);
+  border-radius: 999px;
+  background: rgba(225, 224, 204, 0.07);
+  color: #f1efdf;
+  padding: 0.75rem 1rem;
+}
+.prisma-auth-shell .refine-form input:focus-visible {
+  outline: 2px solid #dedbc8;
+  outline-offset: 2px;
+}
+.prisma-auth-shell .content-blocks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin: 1rem 0 2rem;
+}
+.prisma-auth-shell .content-block {
+  min-width: 0;
+  border: 1px solid rgba(225, 224, 204, 0.16);
+  border-radius: 16px;
+  background: rgba(225, 224, 204, 0.07);
+  padding: 1.2rem;
+  animation: block-enter 0.45s ease both;
+}
+.prisma-auth-shell .content-block h3 {
+  margin: 0.35rem 0 0.7rem;
+  color: #f1efdf;
+  font-size: 1rem;
+}
+.prisma-auth-shell .content-block p,
+.prisma-auth-shell .content-block li {
+  color: rgba(241, 239, 223, 0.76);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+.prisma-auth-shell .block-label {
+  color: rgba(225, 224, 204, 0.52);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.prisma-auth-shell .block-checklist ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+.prisma-auth-shell .block-checklist li + li {
+  margin-top: 0.45rem;
+}
+.prisma-auth-shell .chart-bars {
+  display: flex;
+  align-items: end;
+  gap: 0.55rem;
+  height: 120px;
+  padding-top: 0.5rem;
+}
+.prisma-auth-shell .chart-bar-item {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: end;
+  gap: 0.4rem;
+}
+.prisma-auth-shell .chart-bar-track {
+  display: flex;
+  width: 100%;
+  height: 88px;
+  align-items: end;
+  border-radius: 6px 6px 2px 2px;
+  background: rgba(225, 224, 204, 0.08);
+  overflow: hidden;
+}
+.prisma-auth-shell .chart-bar-track span {
+  display: block;
+  width: 100%;
+  min-height: 4px;
+  border-radius: 6px 6px 0 0;
+  background: #dedbc8;
+}
+.prisma-auth-shell .chart-bar-item small {
+  max-width: 8ch;
+  overflow: hidden;
+  color: rgba(241, 239, 223, 0.58);
+  font-size: 0.65rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes block-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .prisma-auth-shell article .chips {
   gap: 0.5rem;
   margin-bottom: 1.5rem;
@@ -1013,9 +1191,215 @@ blockquote {
   color: #f1efdf;
   font-size: clamp(4rem, 9vw, 7rem);
 }
+.prisma-auth-shell .learn-search {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: clamp(4.5rem, 14vh, 9rem) 0 2rem;
+}
+.prisma-auth-shell .learn-kicker {
+  margin: 0 0 0.45rem;
+  color: rgba(241, 239, 223, 0.58);
+  font-size: 0.78rem;
+}
+.prisma-auth-shell .learn-search h1 {
+  margin: 0 0 2rem;
+  color: #f1efdf;
+  font-size: clamp(2rem, 4vw, 3.15rem);
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+.prisma-auth-shell .learn-composer {
+  overflow: hidden;
+  border: 1px solid rgba(225, 224, 204, 0.16);
+  border-radius: 18px;
+  background: rgba(24, 24, 24, 0.84);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.2);
+}
+.prisma-auth-shell .learn-composer textarea {
+  display: block;
+  min-height: 120px;
+  resize: vertical;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 1.35rem 1.35rem 0.75rem;
+}
+.prisma-auth-shell .learn-composer textarea:focus {
+  outline: 0;
+}
+.prisma-auth-shell .learn-difficulty {
+  display: flex;
+  width: 100%;
+  margin-top: 0.75rem;
+  border: 1px solid rgba(225, 224, 204, 0.15);
+}
+.prisma-auth-shell .learn-difficulty button {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+}
+.prisma-auth-shell .learn-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 58px;
+  padding: 0.55rem 0.75rem;
+}
+.prisma-auth-shell .learn-tool-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: rgba(241, 239, 223, 0.64);
+}
+.prisma-auth-shell .learn-composer .seg {
+  flex: 0 1 auto;
+  border: 1px solid rgba(225, 224, 204, 0.15);
+}
+.prisma-auth-shell .learn-composer .seg button {
+  padding: 8px 11px;
+  font-size: 0.72rem;
+}
+.prisma-auth-shell .learn-composer .provider-select {
+  margin-left: auto;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: rgba(241, 239, 223, 0.62);
+}
+.prisma-auth-shell .learn-composer .provider-select select {
+  min-width: 105px;
+  border: 0;
+  background: transparent;
+  padding: 7px 22px 7px 4px;
+  font-size: 0.78rem;
+}
+.prisma-auth-shell .learn-submit {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #dedbc8;
+  color: #101010;
+  cursor: pointer;
+}
+.prisma-auth-shell .learn-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+.prisma-auth-shell .learn-suggestions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+.prisma-auth-shell .learn-suggestion {
+  display: flex;
+  min-height: 112px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid rgba(225, 224, 204, 0.1);
+  border-radius: 12px;
+  background: rgba(10, 36, 40, 0.8);
+  padding: 1.1rem;
+  color: #f1efdf;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s, background 0.2s;
+}
+.prisma-auth-shell .learn-suggestion:hover {
+  transform: translateY(-2px);
+  background: rgba(18, 58, 62, 0.9);
+}
+.prisma-auth-shell .learn-suggestion-primary {
+  background: rgba(30, 137, 146, 0.9);
+}
+.prisma-auth-shell .learn-suggestion-primary:hover {
+  background: rgba(38, 157, 166, 0.95);
+}
+.prisma-auth-shell .learn-suggestion strong {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.92rem;
+}
+.prisma-auth-shell .learn-suggestion span {
+  max-width: 34ch;
+  color: rgba(241, 239, 223, 0.72);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
 @media (max-width: 720px) {
+  .prisma-auth-shell main {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+  .prisma-auth-shell main > .hero {
+    padding-top: 5rem;
+  }
+  .prisma-auth-shell .actions {
+    align-items: stretch;
+  }
+  .prisma-auth-shell .actions > * {
+    min-width: 0;
+  }
+  .prisma-auth-shell .actions .seg,
+  .prisma-auth-shell .actions .provider-select,
+  .prisma-auth-shell .actions > .btn {
+    width: 100%;
+  }
+  .prisma-auth-shell .actions .seg button {
+    flex: 1;
+    min-width: 0;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+  .prisma-auth-shell .provider-select {
+    justify-content: space-between;
+  }
+  .prisma-auth-shell .provider-select select {
+    min-width: 0;
+    flex: 1;
+  }
+  .prisma-auth-shell main > .list .row.link {
+    align-items: flex-start;
+  }
+  .prisma-auth-shell main > .list .row.link > span:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .prisma-auth-shell main > .list .row.link .score-pill {
+    flex: 0 0 auto;
+  }
   .prisma-auth-shell .profile-topics {
     grid-template-columns: 1fr;
+  }
+  .prisma-auth-shell .profile-topic-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .prisma-auth-shell .profile-topic-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .prisma-auth-shell .history-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 0;
+  }
+  .prisma-auth-shell .history-row .row.link {
+    width: 100%;
+  }
+  .prisma-auth-shell .history-retest {
+    margin: 0.25rem 0.25rem 0.75rem auto;
   }
   .prisma-auth-shell main > article {
     margin-top: 1rem;
@@ -1037,6 +1421,51 @@ blockquote {
   }
   .prisma-auth-shell article .actions .btn {
     flex: 1;
+  }
+  .prisma-auth-shell article .tabs {
+    width: 100%;
+  }
+  .prisma-auth-shell article .tabs button {
+    flex: 1;
+    min-width: max-content;
+    padding-right: 0.85rem;
+    padding-left: 0.85rem;
+  }
+  .prisma-auth-shell article .grid2 {
+    grid-template-columns: 1fr;
+  }
+  .prisma-auth-shell article .card {
+    min-height: 240px;
+    padding: 1.35rem;
+  }
+  .prisma-auth-shell .refine-form {
+    flex-direction: column;
+  }
+  .prisma-auth-shell .content-blocks {
+    grid-template-columns: 1fr;
+  }
+  .prisma-auth-shell .learn-search {
+    padding-top: 5rem;
+  }
+  .prisma-auth-shell .learn-composer-tools {
+    flex-wrap: wrap;
+    padding: 0.65rem 0.75rem 0.75rem;
+  }
+  .prisma-auth-shell .learn-composer .seg {
+    order: 1;
+    flex: 1 1 calc(100% - 42px);
+  }
+  .prisma-auth-shell .learn-composer .provider-select {
+    order: 2;
+    width: calc(100% - 48px);
+    margin-left: 0;
+  }
+  .prisma-auth-shell .learn-submit {
+    order: 2;
+    margin-left: auto;
+  }
+  .prisma-auth-shell .learn-suggestions {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 900px) {
@@ -1085,7 +1514,7 @@ blockquote {
 }
 @media (max-width: 480px) {
   .prisma-auth-shell .top {
-    border-radius: 18px;
+    border-radius: 20px 20px 0 0;
   }
   .prisma-auth-shell .logo {
     font-size: 12px;
@@ -1095,6 +1524,27 @@ blockquote {
   }
   .prisma-auth-shell .top nav a {
     font-size: 12px;
+  }
+  .prisma-auth-shell main {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+  .prisma-auth-shell main > .hero h1,
+  .prisma-auth-shell article .hero h1 {
+    font-size: clamp(2.15rem, 13vw, 3.25rem);
+  }
+  .prisma-auth-shell .profile-topic-panel {
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+  .prisma-auth-shell main > .list .row.link {
+    gap: 8px;
+    padding-right: 0;
+    padding-left: 0;
+  }
+  .prisma-auth-shell main > .list .row.link .score-pill {
+    padding-right: 8px;
+    padding-left: 8px;
   }
 }
 

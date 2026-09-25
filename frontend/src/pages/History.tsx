@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { getSessions } from "../lib/api";
+import { Link, useNavigate } from "react-router-dom";
+import { getSessions, retestTopic } from "../lib/api";
 import { EmptyState, ErrorState, LoadingState } from "../components/States";
 
 export default function History() {
   const [rows, setRows] = useState<any[] | null>(null),
     [err, setErr] = useState(""),
-    [q, setQ] = useState("");
+    [q, setQ] = useState(""),
+    [retesting, setRetesting] = useState<string | null>(null);
+  const navigate = useNavigate();
   const load = () => {
     setErr("");
     setRows(null);
@@ -15,6 +17,21 @@ export default function History() {
       .catch((e) => setErr(e.message));
   };
   useEffect(load, []);
+  const startRetest = async (topicId: string) => {
+    setRetesting(topicId);
+    try {
+      const result = await retestTopic(topicId);
+      navigate(`/session/${result.sessionId}`);
+    } catch (e) {
+      if ((e as { code?: string }).code === "retest_limit") {
+        load();
+      } else {
+        setErr((e as Error).message);
+      }
+    } finally {
+      setRetesting(null);
+    }
+  };
   if (err) return <ErrorState message={err} onRetry={load} />;
   if (!rows) return <LoadingState />;
   const shown = rows.filter((r) =>
@@ -39,19 +56,32 @@ export default function History() {
       ) : (
         <div className="list">
           {shown.map((r) => (
-            <Link key={r.id} to={`/session/${r.id}`} className="row link">
-              <span>
-                <b>{r.topic}</b>
-                <small>
-                  {new Date(r.createdAt).toLocaleDateString()} · {r.difficulty}
-                </small>
-              </span>
-              <span className="score-pill">
-                {r.evaluation?.completed
-                  ? `${r.evaluation.score}%`
-                  : "Not finished"}
-              </span>
-            </Link>
+            <div key={r.id} className="history-row">
+              <Link to={`/session/${r.id}`} className="row link">
+                <span>
+                  <b>{r.topic}</b>
+                  <small>
+                    {new Date(r.createdAt).toLocaleDateString()} · {r.difficulty}
+                  </small>
+                </span>
+                <span className="score-pill">
+                  {r.evaluation?.completed
+                    ? `${r.evaluation.score}%`
+                    : "Not finished"}
+                </span>
+              </Link>
+              <button
+                className="retest-btn history-retest"
+                onClick={() => startRetest(r.topicId)}
+                disabled={retesting === r.topicId || r.retestsUsed >= 3}
+              >
+                {retesting === r.topicId
+                  ? "Generating..."
+                  : r.retestsUsed >= 3
+                    ? "Retests used"
+                    : "Retest"}
+              </button>
+            </div>
           ))}
         </div>
       )}

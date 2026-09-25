@@ -1,4 +1,4 @@
-from typing import List, Literal, Dict
+from typing import List, Literal, Dict, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -13,6 +13,15 @@ class Explanation(BaseModel):
     sections: List[Section] = Field(min_length=1)
     keyTakeaways: List[str] = Field(min_length=1)
     commonMistakes: List[str] = []
+
+
+class ContentBlock(BaseModel):
+    kind: Literal["card", "chart", "checklist"]
+    title: str = Field(min_length=1)
+    body: Optional[str] = None
+    items: List[str] = []
+    labels: List[str] = []
+    values: List[float] = []
 
 
 class Flashcard(BaseModel):
@@ -42,6 +51,7 @@ class Lesson(BaseModel):
     explanation: Explanation
     flashcards: List[Flashcard] = Field(min_length=1)
     quiz: List[QuizQuestion] = Field(min_length=1)
+    blocks: List[ContentBlock] = []
 
 
 class LearnIn(BaseModel):
@@ -63,6 +73,10 @@ class CompleteIn(BaseModel):
         if self.correct + self.incorrect != self.total:
             raise ValueError("correct + incorrect must equal total")
         return self
+
+
+class RefineIn(BaseModel):
+    prompt: str = Field(min_length=3, max_length=1000)
 
 
 class GoogleAuthIn(BaseModel):

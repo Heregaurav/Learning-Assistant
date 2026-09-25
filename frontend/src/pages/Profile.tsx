@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { getProfile } from "../lib/api";
+import { useNavigate } from "react-router-dom";
+import { getProfile, retestTopic } from "../lib/api";
 import { ErrorState, LoadingState } from "../components/States";
 
 type ProfileData = {
@@ -13,14 +14,16 @@ type ProfileData = {
     cardsReviewed: number;
     quizzesCompleted: number;
   };
-  strong: { name: string; progress: { score: number } }[];
-  needsReview: { name: string; progress: { score: number } }[];
+  strong: { id: string; name: string; retestsUsed: number; progress: { score: number } }[];
+  needsReview: { id: string; name: string; retestsUsed: number; progress: { score: number } }[];
 };
 
 export default function Profile() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [pictureFailed, setPictureFailed] = useState(false);
   const [error, setError] = useState("");
+  const [retesting, setRetesting] = useState<string | null>(null);
+  const navigate = useNavigate();
   const load = () => {
     setError("");
     getProfile()
@@ -28,6 +31,21 @@ export default function Profile() {
       .catch((e) => setError(e.message));
   };
   useEffect(load, []);
+  const startRetest = async (topicId: string) => {
+    setRetesting(topicId);
+    try {
+      const result = await retestTopic(topicId);
+      navigate(`/session/${result.sessionId}`);
+    } catch (e) {
+      if ((e as { code?: string }).code === "retest_limit") {
+        load();
+      } else {
+        setError((e as Error).message);
+      }
+    } finally {
+      setRetesting(null);
+    }
+  };
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!profile) return <LoadingState />;
   return (
@@ -81,10 +99,23 @@ export default function Profile() {
           </div>
           {profile.strong.length ? (
             profile.strong.map((topic) => (
-              <p className="row" key={topic.name}>
+              <div className="row profile-topic-row" key={topic.id}>
                 <span className="topic-name">{topic.name}</span>
-                <span className="score-pill">{topic.progress.score}%</span>
-              </p>
+                <span className="profile-topic-actions">
+                  <span className="score-pill">{topic.progress.score}%</span>
+                  <button
+                    className="retest-btn"
+                    onClick={() => startRetest(topic.id)}
+                    disabled={retesting === topic.id || topic.retestsUsed >= 3}
+                  >
+                    {retesting === topic.id
+                      ? "Generating..."
+                      : topic.retestsUsed >= 3
+                        ? "Retests used"
+                        : "Retest"}
+                  </button>
+                </span>
+              </div>
             ))
           ) : (
             <p className="topic-empty">Complete a quiz to build your strengths.</p>
@@ -100,10 +131,23 @@ export default function Profile() {
           </div>
           {profile.needsReview.length ? (
             profile.needsReview.map((topic) => (
-              <p className="row" key={topic.name}>
+              <div className="row profile-topic-row" key={topic.id}>
                 <span className="topic-name">{topic.name}</span>
-                <span className="score-pill">{topic.progress.score}%</span>
-              </p>
+                <span className="profile-topic-actions">
+                  <span className="score-pill">{topic.progress.score}%</span>
+                  <button
+                    className="retest-btn"
+                    onClick={() => startRetest(topic.id)}
+                    disabled={retesting === topic.id || topic.retestsUsed >= 3}
+                  >
+                    {retesting === topic.id
+                      ? "Generating..."
+                      : topic.retestsUsed >= 3
+                        ? "Retests used"
+                        : "Retest"}
+                  </button>
+                </span>
+              </div>
             ))
           ) : (
             <p className="topic-empty">No review topics yet.</p>

@@ -1,4 +1,4 @@
-import type { Lesson } from "../types";
+import type { ContentBlock, Lesson } from "../types";
 const str = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
 const strs = (v: unknown): v is string[] => Array.isArray(v) && v.every(str);
@@ -47,6 +47,24 @@ export function validateLesson(d: any): Lesson | null {
           q.options.includes(q.correctAnswer),
       );
     if (!cardsOk || !quizOk) return null;
+    const blocks: ContentBlock[] = Array.isArray(d.blocks)
+      ? d.blocks.flatMap((block: any) => {
+          if (block?.kind === "card" && str(block.title) && str(block.body))
+            return [{ kind: "card" as const, title: block.title, body: block.body }];
+          if (block?.kind === "checklist" && str(block.title) && strs(block.items))
+            return [{ kind: "checklist" as const, title: block.title, items: block.items }];
+          if (
+            block?.kind === "chart" &&
+            str(block.title) &&
+            strs(block.labels) &&
+            Array.isArray(block.values) &&
+            block.labels.length === block.values.length &&
+            block.values.every((value: unknown) => typeof value === "number")
+          )
+            return [{ kind: "chart" as const, title: block.title, labels: block.labels, values: block.values }];
+          return [];
+        })
+      : [];
     return {
       topic: d.topic,
       explanation: {
@@ -57,6 +75,7 @@ export function validateLesson(d: any): Lesson | null {
       },
       flashcards: d.flashcards,
       quiz: d.quiz,
+      blocks,
     };
   } catch {
     return null;

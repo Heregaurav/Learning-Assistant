@@ -24,6 +24,7 @@ export const MSG: Record<string, string> = {
   database_auth_failed:
     "MongoDB rejected the username or password. Check backend/.env.",
   missing_api_key: "Add the selected provider API key to backend/.env.",
+  retest_limit: "You have used all 3 retests for this topic.",
 };
 
 async function req<T>(
@@ -91,6 +92,46 @@ export const learn = (
       signal,
     },
   );
+export const learnStream = async (
+  content: string,
+  difficulty: string,
+  provider: string,
+  model: string,
+  signal: AbortSignal,
+  onStage: (stage: string) => void,
+) => {
+  const response = await fetch(`${BASE}/api/learn/stream`, {
+    method: "POST",
+    signal,
+    headers: {
+      "Content-Type": "application/json",
+      ...(localStorage.getItem("google_credential")
+        ? { Authorization: `Bearer ${localStorage.getItem("google_credential")}` }
+        : {}),
+    },
+    body: JSON.stringify({ content, difficulty, provider, model }),
+  });
+  if (!response.ok || !response.body) throw new ApiError("network", MSG.network);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const event of events) {
+      const line = event.split("\n").find((item) => item.startsWith("data: "));
+      if (!line) continue;
+      const payload = JSON.parse(line.slice(6));
+      if (payload.error) throw new ApiError(payload.error, payload.message);
+      if (payload.stage) onStage(payload.stage);
+      if (payload.learningContent) return payload;
+    }
+    if (done) break;
+  }
+  throw new ApiError("empty", MSG.empty);
+};
 export const completeSession = (id: string, body: object) =>
   req<{ topicProgress: number }>(`/api/sessions/${id}/complete`, {
     method: "POST",
@@ -98,3 +139,13 @@ export const completeSession = (id: string, body: object) =>
   });
 export const getSessions = () => req<any[]>("/api/sessions");
 export const getSession = (id: string) => req<any>(`/api/sessions/${id}`);
+export const retestTopic = (id: string) =>
+  req<{ sessionId: string; topic: string; learningContent: unknown }>(
+    `/api/topics/${id}/retest`,
+    { method: "POST" },
+  );
+export const refineSession = (id: string, prompt: string) =>
+  req<{ sessionId: string; learningContent: unknown }>(
+    `/api/sessions/${id}/refine`,
+    { method: "POST", body: JSON.stringify({ prompt }) },
+  );

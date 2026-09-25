@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { learn, ApiError, MSG } from "../lib/api";
+import { ArrowUp, BookOpen, Search } from "lucide-react";
+import { learnStream, ApiError, MSG } from "../lib/api";
 import { validateLesson } from "../lib/validate";
 import type { Lesson as L } from "../types";
 import Lesson from "../components/Lesson";
@@ -7,7 +8,7 @@ import { ErrorState, LoadingState } from "../components/States";
 
 type S =
   | { s: "idle" }
-  | { s: "loading" }
+  | { s: "loading"; stage: string }
   | { s: "error"; msg: string }
   | { s: "success"; id: string; lesson: L };
 
@@ -39,17 +40,20 @@ export default function Learn() {
     const id = ++reqId.current; // stale-response guard
     ctl.current?.abort();
     ctl.current = new AbortController();
-    setState({ s: "loading" });
+    setState({ s: "loading", stage: "understanding" });
     try {
       const selected =
         PROVIDERS.find((option) => option.value === providerModel) ??
         PROVIDERS[0];
-      const r = await learn(
+      const r = await learnStream(
         text,
         difficulty,
         selected.provider,
         selected.model,
         ctl.current.signal,
+        (stage) => {
+          if (id === reqId.current) setState({ s: "loading", stage });
+        },
       );
       if (id !== reqId.current) return; // a newer request has started; drop this one
       const lesson = validateLesson(r.learningContent); // only parsed + validated data reaches the UI
@@ -63,52 +67,78 @@ export default function Learn() {
 
   return (
     <>
-      <section className="hero intro">
-        <h1>What do you want to learn?</h1>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={4}
-          aria-label="Topic or notes"
-          placeholder="Enter a topic or paste your notes. For example: Teach me binary search trees"
-        />
-        <div className="actions">
-          <div className="seg" role="radiogroup" aria-label="Difficulty">
-            {["beginner", "intermediate", "advanced"].map((d) => (
-              <button
-                key={d}
-                role="radio"
-                aria-checked={difficulty === d}
-                onClick={() => setDifficulty(d)}
+      <section className="learn-search">
+        <p className="learn-kicker">Search</p>
+        <h1>What do you want to know?</h1>
+        <div className="learn-composer">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            aria-label="Topic or notes"
+            placeholder="Ask anything..."
+          />
+
+          <div className="learn-composer-tools">
+
+            <label className="provider-select">
+              Model
+              <select
+                value={providerModel}
+                onChange={(e) => setProviderModel(e.target.value)}
+                disabled={state.s === "loading"}
               >
-                {d}
-              </button>
-            ))}
-          </div>
-          <label className="provider-select">
-            Model
-            <select
-              value={providerModel}
-              onChange={(e) => setProviderModel(e.target.value)}
-              disabled={state.s === "loading"}
+                {PROVIDERS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="learn-submit"
+              onClick={generate}
+              disabled={state.s === "loading" || text.trim().length < 3}
+              aria-label="Start learning"
             >
-              {PROVIDERS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <ArrowUp size={18} />
+            </button>
+          </div>
+        </div>
+        <div className="learn-difficulty seg" role="radiogroup" aria-label="Difficulty">
+          {["beginner", "intermediate", "advanced"].map((d) => (
+            <button
+              key={d}
+              role="radio"
+              aria-checked={difficulty === d}
+              onClick={() => setDifficulty(d)}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+        <div className="learn-suggestions">
           <button
-            className="btn"
-            onClick={generate}
-            disabled={state.s === "loading" || text.trim().length < 3}
+            className="learn-suggestion learn-suggestion-primary"
+            onClick={() => setText("Explain a topic from trusted sources")}
           >
-            Start learning
+            <strong>
+              <Search size={16} /> Search any Topic 
+            </strong>
+            <span>Get a clear, structured explanation of any topic.</span>
+          </button>
+          <button
+            className="learn-suggestion"
+            onClick={() => setText("Turn my notes into a study lesson")}
+          >
+            <strong>
+              <BookOpen size={16} /> Turn notes into a lesson
+            </strong>
+            <span>Build explanations, flashcards, and a quiz.</span>
           </button>
         </div>
       </section>
-      {state.s === "loading" && <LoadingState />}
+      {state.s === "loading" && <LoadingState stage={state.stage} />}
       {state.s === "error" && (
         <ErrorState message={state.msg} onRetry={generate} />
       )}

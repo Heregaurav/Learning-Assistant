@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import type { Lesson as L } from "../types";
-import { completeSession } from "../lib/api";
+import type { ContentBlock, Lesson as L } from "../types";
+import { completeSession, refineSession } from "../lib/api";
+import { validateLesson } from "../lib/validate";
 
 type Props = {
   lesson: L;
@@ -12,11 +13,31 @@ const TABS = ["Explanation", "Flashcards", "Quiz"] as const;
 export default function Lesson({ lesson, sessionId, initialAnswers }: Props) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Explanation");
   const [viewed, setViewed] = useState<Set<string>>(new Set());
-  const e = lesson.explanation;
+  const [currentLesson, setCurrentLesson] = useState(lesson);
+  const [refinement, setRefinement] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState("");
+  const e = currentLesson.explanation;
+  const refine = async () => {
+    if (refinement.trim().length < 3 || refining) return;
+    setRefining(true);
+    setRefineError("");
+    try {
+      const result = await refineSession(sessionId, refinement.trim());
+      const next = validateLesson(result.learningContent);
+      if (!next) throw new Error("The refined lesson had an unexpected format.");
+      setCurrentLesson(next);
+      setRefinement("");
+    } catch (error) {
+      setRefineError((error as Error).message);
+    } finally {
+      setRefining(false);
+    }
+  };
   return (
     <article>
       <header className="hero">
-        <h1>{lesson.topic}</h1>
+        <h1>{currentLesson.topic}</h1>
         <div className="chips">
           {e.sections.map((s) => (
             <span key={s.title} className="chip">
@@ -25,6 +46,25 @@ export default function Lesson({ lesson, sessionId, initialAnswers }: Props) {
           ))}
         </div>
         <p className="lead">{e.overview}</p>
+        <form
+          className="refine-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void refine();
+          }}
+        >
+          <input
+            value={refinement}
+            onChange={(event) => setRefinement(event.target.value)}
+            placeholder="Refine this lesson, e.g. make it simpler"
+            aria-label="Refine this lesson"
+            disabled={refining}
+          />
+          <button className="btn" disabled={refining || refinement.trim().length < 3}>
+            {refining ? "Refining..." : "Refine"}
+          </button>
+        </form>
+        {refineError && <p className="err">{refineError}</p>}
       </header>
       <nav className="tabs" role="tablist">
         {TABS.map((t) => (
@@ -33,12 +73,25 @@ export default function Lesson({ lesson, sessionId, initialAnswers }: Props) {
             role="tab"
             aria-selected={tab === t}
             onClick={() => setTab(t)}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+              event.preventDefault();
+              const index = TABS.indexOf(t);
+              const next = event.key === "ArrowRight"
+                ? (index + 1) % TABS.length
+                : (index - 1 + TABS.length) % TABS.length;
+              setTab(TABS[next]);
+              document.querySelector<HTMLButtonElement>(
+                `[role="tab"][data-tab="${TABS[next]}"]`,
+              )?.focus();
+            }}
+            data-tab={t}
           >
             {t}
           </button>
         ))}
       </nav>
-      {tab === "Explanation" && <Explanation e={e} />}
+      {tab === "Explanation" && <Explanation e={e} blocks={currentLesson.blocks} />}
       {tab === "Flashcards" && (
         <Cards
           cards={lesson.flashcards}
@@ -58,7 +111,7 @@ export default function Lesson({ lesson, sessionId, initialAnswers }: Props) {
   );
 }
 
-function Explanation({ e }: { e: L["explanation"] }) {
+function Explanation({ e, blocks }: { e: L["explanation"]; blocks: ContentBlock[] }) {
   return (
     <>
       <div className="list">
@@ -95,7 +148,52 @@ function Explanation({ e }: { e: L["explanation"] }) {
           </section>
         )}
       </div>
+      {blocks.length > 0 && (
+        <div className="content-blocks" aria-label="Study aids">
+          {blocks.map((block, index) => (
+            <BlockView key={`${block.kind}-${index}`} block={block} />
+          ))}
+        </div>
+      )}
     </>
+  );
+}
+
+function BlockView({ block }: { block: ContentBlock }) {
+  if (block.kind === "card")
+    return (
+      <section className="content-block block-card">
+        <span className="block-label">Key idea</span>
+        <h3>{block.title}</h3>
+        <p>{block.body}</p>
+      </section>
+    );
+  if (block.kind === "checklist")
+    return (
+      <section className="content-block block-checklist">
+        <span className="block-label">Checklist</span>
+        <h3>{block.title}</h3>
+        <ul>
+          {block.items.map((item) => <li key={item}>{item}</li>)}
+        </ul>
+      </section>
+    );
+  const maximum = Math.max(...block.values, 1);
+  return (
+    <section className="content-block block-chart">
+      <span className="block-label">Chart</span>
+      <h3>{block.title}</h3>
+      <div className="chart-bars" role="img" aria-label={block.title}>
+        {block.labels.map((label, index) => (
+          <div className="chart-bar-item" key={label}>
+            <div className="chart-bar-track">
+              <span style={{ height: `${(block.values[index] / maximum) * 100}%` }} />
+            </div>
+            <small>{label}</small>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

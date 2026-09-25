@@ -2,7 +2,7 @@ import json, os, re
 from dotenv import load_dotenv
 from openai import OpenAI, APITimeoutError, APIConnectionError
 from pydantic import ValidationError
-from models import Lesson
+from models import ContentBlock, Lesson, QuizQuestion
 
 load_dotenv()
 
@@ -31,7 +31,12 @@ The output must match this exact structure with no missing keys:
   ],
   "quiz": [
     {"id": "string", "question": "string", "options": ["string", "string", "string", "string"], "correctAnswer": "string", "explanation": "string"}
-  ]
+    ],
+    "blocks": [
+        {"kind":"card","title":"...","body":"..."},
+        {"kind":"checklist","title":"...","items":["..."]},
+        {"kind":"chart","title":"...","labels":["..."],"values":[1]}
+    ]
 }
 Rules:
 - use exactly the keys above; do not omit any field
@@ -46,6 +51,11 @@ Rules:
 - keep every field concise so the complete response, including all 8 quiz questions, fits within 1000 output tokens
 - output valid JSON only, with no commentary or markdown"""
 
+REFINE_SYSTEM = """Edit the supplied study lesson according to the learner's request.
+Return the complete lesson as one valid JSON object with the same keys: topic, explanation, flashcards, quiz, blocks.
+Preserve correct existing facts unless the request explicitly changes them. Keep the flashcard and quiz schemas valid.
+Blocks may be kind card, checklist, or chart. Return JSON only, without markdown."""
+
 QUIZ_SYSTEM = """Create exactly 8 concise quiz questions from the learner's topic or notes.
 Return ONLY one JSON object in this shape:
 {"quiz":[{"id":"q-1","question":"...","options":["...","...","...","..."],"correctAnswer":"...","explanation":"..."}]}
@@ -53,6 +63,13 @@ Every question must test a different, topic-specific fact or idea from the input
 Use exactly 4 distinct options per question and copy correctAnswer exactly from options.
 Keep each explanation short. Do not use generic filler or repeat the topic name as a question.
 Return valid JSON only."""
+
+RETEST_SYSTEM = """Create exactly 3 new quiz questions from the learner's topic or notes.
+Return ONLY one JSON object in this shape:
+{"quiz":[{"id":"retest-1","question":"...","options":["...","...","...","..."],"correctAnswer":"...","explanation":"..."}]}
+Every question must test a different topic-specific fact or idea and must not repeat the supplied existing questions.
+Use exactly 4 distinct options per question and copy correctAnswer exactly from options.
+Keep each explanation short. Return valid JSON only."""
 
 PROVIDERS = {
     "groq": {
@@ -194,6 +211,34 @@ def _normalize_quiz(quiz, topic):
     return normalized[:8]
 
 
+def _normalize_blocks(blocks):
+    normalized = []
+    if not isinstance(blocks, list):
+        return normalized
+    for block in blocks[:6]:
+        if not isinstance(block, dict) or block.get("kind") not in {"card", "chart", "checklist"}:
+            continue
+        kind = block["kind"]
+        title = str(block.get("title") or "Study aid")
+        body = str(block.get("body") or "").strip() or None
+        items = [str(item) for item in (block.get("items") or []) if str(item).strip()][:8]
+        labels = [str(label) for label in (block.get("labels") or []) if str(label).strip()][:8]
+        values = []
+        for value in (block.get("values") or [])[:8]:
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        if kind == "card" and not body:
+            continue
+        if kind == "checklist" and not items:
+            continue
+        if kind == "chart" and (not labels or len(labels) != len(values)):
+            continue
+        normalized.append({"kind": kind, "title": title, "body": body, "items": items, "labels": labels, "values": values})
+    return normalized
+
+
 def _quiz_needs_generation(quiz) -> bool:
     if not isinstance(quiz, list) or len(quiz) < 8:
         return True
@@ -258,6 +303,7 @@ def _repair_lesson(data, topic_hint):
             data.get("flashcards"), str(data.get("topic") or topic_hint)
         ),
         "quiz": _normalize_quiz(data.get("quiz"), str(data.get("topic") or topic_hint)),
+        "blocks": _normalize_blocks(data.get("blocks")),
     }
     if not repaired["explanation"]["keyTakeaways"]:
         repaired["explanation"]["keyTakeaways"] = [
@@ -362,3 +408,84 @@ def generate_lesson(
             return Lesson.model_validate(payload2)
         except Exception:
             raise LLMError("bad_schema", "The JSON did not match the lesson schema.")
+
+
+def generate_retest_quiz(
+    content: str,
+    existing_questions: list[str],
+    provider: str,
+    model: str,
+) -> list[QuizQuestion]:
+    config = PROVIDERS.get(provider)
+    if not config or model not in config["models"]:
+        raise LLMError("llm_failed", "Unsupported model for the selected provider.")
+
+    try:
+        response = client(provider).chat.completions.create(
+            model=model,
+            temperature=0.35,
+            max_tokens=1200,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": RETEST_SYSTEM},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Topic or notes:\n{content}\n\n"
+                        f"Existing questions to avoid:\n{existing_questions}"
+                    ),
+                },
+            ],
+        )
+    except APITimeoutError:
+        raise LLMError("timeout", "The model took too long to respond.")
+    except APIConnectionError:
+        raise LLMError("llm_failed", "Could not reach the LLM provider.")
+    except Exception:
+        raise LLMError("llm_failed", "The LLM provider returned an error.")
+
+    raw = (response.choices[0].message.content or "").strip() if response.choices else ""
+    try:
+        data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip())
+        quiz = data.get("quiz") if isinstance(data, dict) else None
+        normalized = _normalize_quiz(quiz, content[:80])[:3]
+        if len(normalized) != 3:
+            raise ValueError("expected three questions")
+        return [QuizQuestion.model_validate(question) for question in normalized]
+    except (json.JSONDecodeError, TypeError, ValueError, ValidationError):
+        raise LLMError("bad_schema", "The model did not return three valid quiz questions.")
+
+
+def refine_lesson(
+    lesson: dict, prompt: str, provider: str, model: str
+) -> Lesson:
+    config = PROVIDERS.get(provider)
+    if not config or model not in config["models"]:
+        raise LLMError("llm_failed", "Unsupported model for the selected provider.")
+    try:
+        response = client(provider).chat.completions.create(
+            model=model,
+            temperature=0.25,
+            max_tokens=3500,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": REFINE_SYSTEM},
+                {
+                    "role": "user",
+                    "content": f"Current lesson:\n{json.dumps(lesson)}\n\nEdit request:\n{prompt}",
+                },
+            ],
+        )
+    except APITimeoutError:
+        raise LLMError("timeout", "The model took too long to respond.")
+    except APIConnectionError:
+        raise LLMError("llm_failed", "Could not reach the LLM provider.")
+    except Exception:
+        raise LLMError("llm_failed", "The LLM provider returned an error.")
+    raw = (response.choices[0].message.content or "").strip() if response.choices else ""
+    try:
+        data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip())
+        payload = _repair_lesson(data, str(lesson.get("topic") or "Study topic"))
+        return Lesson.model_validate(payload)
+    except (json.JSONDecodeError, TypeError, ValueError, ValidationError):
+        raise LLMError("bad_schema", "The refined lesson had an unexpected format.")
