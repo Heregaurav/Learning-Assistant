@@ -94,14 +94,14 @@ export default function Lesson({ lesson, sessionId, initialAnswers }: Props) {
       {tab === "Explanation" && <Explanation e={e} blocks={currentLesson.blocks} />}
       {tab === "Flashcards" && (
         <Cards
-          cards={lesson.flashcards}
+          cards={currentLesson.flashcards}
           viewed={viewed}
           setViewed={setViewed}
         />
       )}
       {tab === "Quiz" && (
         <Quiz
-          lesson={lesson}
+          lesson={currentLesson}
           sessionId={sessionId}
           initial={initialAnswers}
           cards={viewed.size}

@@ -160,7 +160,9 @@ export default function App() {
         <div className="prisma-auth-gradient" aria-hidden="true" />
         <div className="prisma-auth-content">
           <header className="top">
-            <b className="logo">curiosity</b>
+            <a className="logo" href="/" aria-label="Curiosity home">
+              <img src="/curiosity2.jpg" alt="Curiosity" />
+            </a>
             <nav aria-label="Main">
               <NavLink to="/" end>
                 Learn

@@ -485,7 +485,18 @@ def refine_lesson(
     raw = (response.choices[0].message.content or "").strip() if response.choices else ""
     try:
         data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip())
-        payload = _repair_lesson(data, str(lesson.get("topic") or "Study topic"))
+        if not isinstance(data, dict):
+            raise ValueError("refinement response was not an object")
+        merged = dict(lesson)
+        merged.update({key: value for key, value in data.items() if value is not None})
+        if isinstance(lesson.get("explanation"), dict) and isinstance(
+            data.get("explanation"), dict
+        ):
+            merged["explanation"] = {
+                **lesson["explanation"],
+                **data["explanation"],
+            }
+        payload = _repair_lesson(merged, str(lesson.get("topic") or "Study topic"))
         return Lesson.model_validate(payload)
     except (json.JSONDecodeError, TypeError, ValueError, ValidationError):
         raise LLMError("bad_schema", "The refined lesson had an unexpected format.")
