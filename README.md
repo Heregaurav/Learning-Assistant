@@ -20,6 +20,10 @@ The project is designed around a focused learning loop rather than an open-ended
 
 The learner can submit a short topic or up to 20,000 characters of notes. The backend asks the selected provider for a structured JSON lesson and validates the response before it reaches the UI.
 
+### Document learning
+
+Attach a PDF, DOCX, PPTX, TXT, or Markdown file using the **+** button in the Learn composer. Files are limited to 12 MB. The backend extracts and chunks the document, then uses its content as the source for a lesson with the same explanations, flashcards, and quiz as topic learning. Scanned PDFs are processed with local OCR, up to 20 pages. Document sessions are saved with their source metadata and appear in History.
+
 Generated lesson content includes:
 
 - A topic title and overview.

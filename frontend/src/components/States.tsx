@@ -1,20 +1,25 @@
 import { Component, ReactNode } from "react";
-export const LoadingState = ({ stage = "understanding" }: { stage?: string }) => (
-  <div className="state" role="status" aria-live="polite">
-    <h2>Preparing your lesson…</h2>
-    <p>
-      {stage === "building"
-        ? "Building explanations, study blocks, flashcards and quiz."
-        : stage === "ready"
-          ? "Your lesson is ready."
-          : "Reading your input and planning the lesson."}
-      This can take up to a minute.
-    </p>
-    <div className="bar">
-      <i />
+export const LoadingState = ({ stage = "understanding" }: { stage?: string }) => {
+  const copy: Record<string, string> = {
+    uploading: "Uploading document…",
+    reading: "Reading your document and extracting the text…",
+    understanding: "Understanding the material and identifying the key ideas…",
+    building: "Building explanations, study blocks, flashcards and quiz…",
+    creating_cards: "Creating flashcards from the document…",
+    preparing_quiz: "Preparing your quiz…",
+    almost_ready: "Almost ready…",
+    ready: "Your lesson is ready.",
+  };
+  return (
+    <div className="state" role="status" aria-live="polite">
+      <h2>Preparing your lesson…</h2>
+      <p>{copy[stage] ?? copy.understanding} This can take up to a minute.</p>
+      <div className="bar">
+        <i />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 export const ErrorState = ({
   message,
   onRetry,

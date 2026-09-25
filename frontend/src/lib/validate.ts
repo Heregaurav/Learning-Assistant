@@ -4,7 +4,6 @@ const str = (v: unknown): v is string =>
 const strs = (v: unknown): v is string[] => Array.isArray(v) && v.every(str);
 const list = (v: unknown) => (v === undefined ? [] : strs(v) ? v : null);
 
-/** Second line of defence (the backend already validates): never render an unchecked shape. */
 export function validateLesson(d: any): Lesson | null {
   try {
     const e = d?.explanation;

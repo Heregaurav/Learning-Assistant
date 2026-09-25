@@ -4,7 +4,7 @@ import os, re, uuid
 import logging
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google.auth.exceptions import GoogleAuthError
 from google.oauth2 import id_token
@@ -16,6 +16,8 @@ from pymongo.errors import OperationFailure, PyMongoError
 
 from models import CompleteIn, GoogleAuthIn, LearnIn, RefineIn
 from llm import generate_lesson, generate_retest_quiz, refine_lesson, LLMError
+from document_processor.service import DocumentProcessingService
+from document_processor.parser import EmptyDocumentError, UnsupportedDocumentError
 
 load_dotenv()
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
@@ -241,6 +243,7 @@ def learn(body: LearnIn, user: dict = Depends(current_user)):
             "userId": user_id,
             "topicId": tid,
             "topic": lesson.topic,
+            "source": "topic",
             "difficulty": body.difficulty,
             "provider": body.provider,
             "model": body.model,
@@ -266,6 +269,105 @@ def learn(body: LearnIn, user: dict = Depends(current_user)):
         upsert=True,
     )
     return {"sessionId": sid, "topic": lesson.topic, "learningContent": data}
+
+
+@app.post("/api/learn/document")
+async def learn_document(
+    file: UploadFile = File(...),
+    difficulty: str = Form("beginner"),
+    provider: str = Form("groq"),
+    model: str = Form("qwen/qwen3.8-27b"),
+    instructions: str = Form(""),
+    user: dict = Depends(current_user),
+):
+    if not file.filename:
+        raise err(400, "unsupported_file", "No document file was provided.")
+    raw = await file.read()
+    if not raw or not raw.strip():
+        raise err(400, "empty_document", "The uploaded document is empty.")
+    try:
+        document = DocumentProcessingService.process_uploaded_document(
+            filename=file.filename,
+            content_type=file.content_type or "application/octet-stream",
+            file_bytes=raw,
+            source_name=file.filename,
+        )
+    except UnsupportedDocumentError as exc:
+        raise err(400, "unsupported_file", str(exc))
+    except EmptyDocumentError as exc:
+        raise err(400, "empty_document", str(exc))
+    except ValueError as exc:
+        raise err(400, "unreadable_document", str(exc))
+
+    source_text = DocumentProcessingService.build_context_for_llm(document)
+    if not source_text.strip():
+        raise err(400, "unreadable_document", "No readable text could be extracted from this document, even after OCR.")
+
+    prompt = (
+        "You are CURIOSITY, an AI learning assistant. "
+        "The uploaded document is the primary source of truth. "
+        "Do not invent facts that are not supported by the document. "
+        "Preserve important terminology, concepts, formulas, examples, and structure from the source. "
+        "Adapt the explanation to the selected difficulty while prioritizing understanding over copying.\n\n"
+        f"Document title: {document.title}\n"
+        f"Difficulty: {difficulty}\n"
+        f"Instructions: {instructions.strip() if instructions else 'None'}\n\n"
+        f"Document source content:\n{source_text}"
+    )
+    try:
+        lesson = generate_lesson(prompt, difficulty, provider, model)
+    except LLMError as e:
+        raise err(504 if e.code == "timeout" else 502, e.code, e.message)
+
+    sid = f"session_{uuid.uuid4().hex[:12]}"
+    title = lesson.topic or document.title
+    tid = "doc_" + re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+    metadata = DocumentProcessingService.document_metadata(document)
+    data = lesson.model_dump()
+    db.sessions.insert_one(
+        {
+            "_id": sid,
+            "userId": user["id"],
+            "topicId": tid,
+            "topic": title,
+            "source": "document",
+            "difficulty": difficulty,
+            "provider": provider,
+            "model": model,
+            "document": metadata,
+            "input": {
+                "content": source_text,
+                "instructions": instructions,
+                "document": True,
+                "filename": metadata["filename"],
+                "title": metadata["title"],
+            },
+            "learningContent": data,
+            "evaluation": {"completed": False},
+            "createdAt": now(),
+        }
+    )
+    db.topics.update_one(
+        {"_id": tid, "userId": user["id"]},
+        {
+            "$setOnInsert": {
+                "name": title,
+                "firstStudied": now(),
+                "summary": lesson.explanation.overview[:240],
+                "keyConcepts": [s.title for s in lesson.explanation.sections],
+                "progress": {"score": 0, "level": "New", "sessionsCompleted": 0},
+            },
+            "$addToSet": {"sessionIds": sid},
+            "$set": {"lastStudied": now()},
+        },
+        upsert=True,
+    )
+    return {
+        "sessionId": sid,
+        "topic": title,
+        "learningContent": data,
+        "document": metadata,
+    }
 
 
 @app.post("/api/learn/stream")
@@ -359,7 +461,6 @@ def complete(sid: str, body: CompleteIn, user: dict = Depends(current_user)):
             }
         },
     )
-    # topic progress = mean score of its completed sessions (idempotent on re-complete)
     done = list(
         db.sessions.find(
             {"userId": user_id, "topicId": s["topicId"], "evaluation.completed": True},
@@ -511,6 +612,24 @@ def refine(sid: str, body: RefineIn, user: dict = Depends(current_user)):
         {"_id": sid, "userId": user["id"]},
         {"$set": {"learningContent": data, "updatedAt": now()}},
     )
+    if saved.get("source") == "document":
+        doc = saved.get("document") or {}
+        prompt_text = (
+            f"Use the uploaded document as the primary source of truth. "
+            f"Document title: {doc.get('title', 'Uploaded document')}. "
+            f"Question: {body.prompt}\n\n"
+            f"Document source excerpt:\n{saved.get('input', {}).get('content', '')}"
+        )
+        try:
+            lesson = refine_lesson(saved["learningContent"], prompt_text, saved.get("provider", "groq"), saved.get("model", "qwen/qwen3.8-27b"))
+            data = lesson.model_dump()
+            db.sessions.update_one(
+                {"_id": sid, "userId": user["id"]},
+                {"$set": {"learningContent": data, "updatedAt": now()}},
+            )
+            return {"sessionId": sid, "learningContent": data}
+        except LLMError as e:
+            raise err(504 if e.code == "timeout" else 502, e.code, e.message)
     return {"sessionId": sid, "learningContent": data}
 
 
@@ -568,7 +687,6 @@ def topic(tid: str, user: dict = Depends(current_user)):
 @app.get("/api/graph")
 def graph(user: dict = Depends(current_user)):
     ts = list(db.topics.find({"userId": user["id"]}))
-    # no invented relationships: topics are independent nodes until real links exist
     return {
         "nodes": [
             {

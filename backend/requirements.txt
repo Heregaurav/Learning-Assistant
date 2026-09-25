@@ -6,3 +6,9 @@ openai
 python-dotenv
 google-auth
 requests
+python-multipart
+pypdf
+pypdfium2
+python-docx
+python-pptx
+rapidocr_onnxruntime

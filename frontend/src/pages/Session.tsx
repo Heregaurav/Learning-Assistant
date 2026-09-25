@@ -19,7 +19,7 @@ export default function Session() {
   useEffect(load, [id]);
   if (err) return <ErrorState message={err} onRetry={load} />;
   if (!s) return <LoadingState />;
-  const lesson = validateLesson(s.learningContent); // reopened from MongoDB, no LLM call
+  const lesson = validateLesson(s.learningContent);
   if (!lesson)
     return (
       <ErrorState message="This saved session has an unexpected format." />

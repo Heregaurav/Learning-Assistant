@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, BookOpen, Search } from "lucide-react";
-import { learnStream, ApiError, MSG } from "../lib/api";
+import { ArrowUp, BookOpen, Search, FileText, Plus, X } from "lucide-react";
+import { learnStream, ApiError, MSG, learnDocument } from "../lib/api";
 import { validateLesson } from "../lib/validate";
 import type { Lesson as L } from "../types";
 import Lesson from "../components/Lesson";
@@ -10,7 +10,7 @@ type S =
   | { s: "idle" }
   | { s: "loading"; stage: string }
   | { s: "error"; msg: string }
-  | { s: "success"; id: string; lesson: L };
+  | { s: "success"; id: string; lesson: L; source?: "topic" | "document"; document?: { title?: string; filename?: string } };
 
 const PROVIDERS = [
   {
@@ -31,7 +31,9 @@ const ACTIVE_LESSON_KEY = "curiosity.active-lesson";
 export default function Learn() {
   const [text, setText] = useState(""),
     [difficulty, setDifficulty] = useState("beginner");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [providerModel, setProviderModel] = useState(PROVIDERS[0].value);
+  const documentInput = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<S>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(ACTIVE_LESSON_KEY) ?? "null");
@@ -56,56 +58,144 @@ export default function Learn() {
   }, [state]);
 
   async function generate() {
-    if (text.trim().length < 3) return;
-    const id = ++reqId.current; // stale-response guard
-    ctl.current?.abort();
-    ctl.current = new AbortController();
-    setState({ s: "loading", stage: "understanding" });
+    if (!documentFile) {
+      if (text.trim().length < 3) return;
+      const id = ++reqId.current;
+      ctl.current?.abort();
+      ctl.current = new AbortController();
+      setState({ s: "loading", stage: "understanding" });
+      try {
+        const selected =
+          PROVIDERS.find((option) => option.value === providerModel) ??
+          PROVIDERS[0];
+        const r = await learnStream(
+          text,
+          difficulty,
+          selected.provider,
+          selected.model,
+          ctl.current.signal,
+          (stage) => {
+            if (id === reqId.current) setState({ s: "loading", stage });
+          },
+        );
+        if (id !== reqId.current) return;
+        const lesson = validateLesson(r.learningContent);
+        if (!lesson) throw new ApiError("bad_schema", MSG.bad_schema);
+        setState({ s: "success", id: r.sessionId, lesson, source: "topic" });
+      } catch (e) {
+        if (id !== reqId.current || (e as ApiError).code === "cancelled") return;
+        setState({ s: "error", msg: (e as Error).message });
+      }
+      return;
+    }
+
+    const id = ++reqId.current;
+    const selected =
+      PROVIDERS.find((option) => option.value === providerModel) ?? PROVIDERS[0];
+    setState({ s: "loading", stage: "uploading" });
     try {
-      const selected =
-        PROVIDERS.find((option) => option.value === providerModel) ??
-        PROVIDERS[0];
-      const r = await learnStream(
-        text,
-        difficulty,
-        selected.provider,
-        selected.model,
-        ctl.current.signal,
-        (stage) => {
-          if (id === reqId.current) setState({ s: "loading", stage });
-        },
-      );
-      if (id !== reqId.current) return; // a newer request has started; drop this one
-      const lesson = validateLesson(r.learningContent); // only parsed + validated data reaches the UI
+      const result = await learnDocument(documentFile, {
+        difficulty: difficulty as "beginner" | "intermediate" | "advanced",
+        provider: selected.provider as "groq" | "gemini" | "openrouter",
+        model: selected.model,
+        instructions: text.trim(),
+      });
+      if (id !== reqId.current) return;
+      const lesson = validateLesson(result.learningContent);
       if (!lesson) throw new ApiError("bad_schema", MSG.bad_schema);
-      setState({ s: "success", id: r.sessionId, lesson });
+      setState({
+        s: "success",
+        id: result.sessionId,
+        lesson,
+        source: "document",
+        document: result.document,
+      });
     } catch (e) {
-      if (id !== reqId.current || (e as ApiError).code === "cancelled") return;
+      if (id !== reqId.current) return;
       setState({ s: "error", msg: (e as Error).message });
     }
   }
+
+  const allowedTypes = [
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/markdown",
+  ];
+
+  const handleDocumentFile = (file: File | null) => {
+    if (!file) {
+      setDocumentFile(null);
+      return;
+    }
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    const ok =
+      ["pdf", "docx", "txt", "md", "markdown", "pptx"].includes(String(ext ?? "")) ||
+      allowedTypes.includes(file.type);
+    if (!ok) {
+      setState({ s: "error", msg: "Unsupported file type. Please upload a PDF, DOCX, TXT, Markdown, or PPTX document." });
+      return;
+    }
+    setDocumentFile(file);
+    setState({ s: "idle" });
+  };
 
   return (
     <>
       <section className="learn-search">
         <p className="learn-kicker">Search</p>
         <h1>What do you want to know?</h1>
+
+        <input
+          ref={documentInput}
+          type="file"
+          accept=".pdf,.docx,.txt,.md,.markdown,.pptx"
+          hidden
+          onChange={(event) => {
+            handleDocumentFile(event.target.files?.[0] ?? null);
+            event.target.value = "";
+          }}
+        />
+
         <div className="learn-composer">
           <textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(event) => setText(event.target.value)}
             rows={3}
-            aria-label="Topic or notes"
+            aria-label="Topic, question, or document instructions"
             placeholder="Ask anything..."
           />
 
-          <div className="learn-composer-tools">
+          {documentFile && (
+            <div className="learn-file-attachment">
+              <FileText size={14} />
+              <span title={documentFile.name}>{documentFile.name}</span>
+              <button
+                type="button"
+                onClick={() => handleDocumentFile(null)}
+                aria-label="Remove attached document"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
 
+          <div className="learn-composer-tools">
+            <button
+              type="button"
+              className="learn-add-button"
+              onClick={() => documentInput.current?.click()}
+              aria-label="Add a document"
+              title="Add a document"
+            >
+              <Plus size={19} />
+            </button>
             <label className="provider-select">
               Model
               <select
                 value={providerModel}
-                onChange={(e) => setProviderModel(e.target.value)}
+                onChange={(event) => setProviderModel(event.target.value)}
                 disabled={state.s === "loading"}
               >
                 {PROVIDERS.map((option) => (
@@ -118,13 +208,14 @@ export default function Learn() {
             <button
               className="learn-submit"
               onClick={generate}
-              disabled={state.s === "loading" || text.trim().length < 3}
-              aria-label="Start learning"
+              disabled={state.s === "loading" || (documentFile ? false : text.trim().length < 3)}
+              aria-label={documentFile ? "Learn from attached document" : "Start learning"}
             >
               <ArrowUp size={18} />
             </button>
           </div>
         </div>
+
         <div className="learn-difficulty seg" role="radiogroup" aria-label="Difficulty">
           {["beginner", "intermediate", "advanced"].map((d) => (
             <button
@@ -137,13 +228,14 @@ export default function Learn() {
             </button>
           ))}
         </div>
+
         <div className="learn-suggestions">
           <button
             className="learn-suggestion learn-suggestion-primary"
             onClick={() => setText("Explain a topic from trusted sources")}
           >
             <strong>
-              <Search size={16} /> Search any Topic 
+              <Search size={16} /> Search any Topic
             </strong>
             <span>Get a clear, structured explanation of any topic.</span>
           </button>
@@ -163,7 +255,13 @@ export default function Learn() {
         <ErrorState message={state.msg} onRetry={generate} />
       )}
       {state.s === "success" && (
-        <Lesson key={state.id} lesson={state.lesson} sessionId={state.id} />
+        <Lesson
+          key={state.id}
+          lesson={state.lesson}
+          sessionId={state.id}
+          source={state.source}
+          documentMeta={state.document}
+        />
       )}
     </>
   );

@@ -2,7 +2,7 @@ import json, os, re
 from dotenv import load_dotenv
 from openai import OpenAI, APITimeoutError, APIConnectionError
 from pydantic import ValidationError
-from models import ContentBlock, Lesson, QuizQuestion
+from models import Lesson, QuizQuestion
 
 load_dotenv()
 
@@ -47,6 +47,7 @@ Rules:
 - explanation.keyTakeaways and explanation.commonMistakes are required arrays
 - adapt depth to the requested difficulty
 - keep answers faithful to the user's notes; do not invent facts
+- create a chart only when the provided input contains at least two explicit, comparable numeric values; use a precise title with units when available, and never invent statistics or projections to populate a chart. If the source has no comparable numbers, use a card or checklist instead.
 - every quiz question must be specific to the user's topic or notes, never generic filler
 - keep every field concise so the complete response, including all 8 quiz questions, fits within 1000 output tokens
 - output valid JSON only, with no commentary or markdown"""

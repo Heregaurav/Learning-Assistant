@@ -1,3 +1,10 @@
+import type {
+  DocumentLearningRequest,
+  DocumentLearningResponse,
+  Lesson,
+  SavedSession,
+} from "../types";
+
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 export class ApiError extends Error {
   constructor(
@@ -77,7 +84,65 @@ export const googleAuth = (credential: string) =>
     method: "POST",
     body: JSON.stringify({ credential }),
   });
-export const getProfile = () => req<any>("/api/profile");
+export const getProfile = () =>
+  req<{
+    id: string;
+    name: string;
+    email: string;
+    picture: string;
+    isGuest?: boolean;
+    stats: {
+      topicsStudied: number;
+      sessionsCompleted: number;
+      averageScore: number;
+      cardsReviewed: number;
+      quizzesCompleted: number;
+    };
+    strong: {
+      id: string;
+      name: string;
+      retestsUsed: number;
+      progress: { score: number };
+    }[];
+    needsReview: {
+      id: string;
+      name: string;
+      retestsUsed: number;
+      progress: { score: number };
+    }[];
+  }>("/api/profile");
+
+export const learnDocument = (
+  file: File,
+  payload: DocumentLearningRequest,
+): Promise<DocumentLearningResponse> => {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  form.append("difficulty", payload.difficulty);
+  form.append("provider", payload.provider);
+  form.append("model", payload.model);
+  form.append("instructions", payload.instructions ?? "");
+
+  return fetch(`${BASE}/api/learn/document`, {
+    method: "POST",
+    body: form,
+    headers: {
+      ...(localStorage.getItem("google_credential")
+        ? { Authorization: `Bearer ${localStorage.getItem("google_credential")}` }
+        : {}),
+      ...(localStorage.getItem("curiosity.guest-id")
+        ? { "X-Guest-ID": localStorage.getItem("curiosity.guest-id") ?? "" }
+        : {}),
+    },
+  }).then(async (r) => {
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      const code = b?.detail?.code ?? `http_${r.status}`;
+      throw new ApiError(code, MSG[code] ?? b?.detail?.message ?? "Request failed.");
+    }
+    return (await r.json()) as DocumentLearningResponse;
+  });
+};
 
 export const learn = (
   content: string,
@@ -142,8 +207,8 @@ export const completeSession = (id: string, body: object) =>
     method: "POST",
     body: JSON.stringify(body),
   });
-export const getSessions = () => req<any[]>("/api/sessions");
-export const getSession = (id: string) => req<any>(`/api/sessions/${id}`);
+export const getSessions = () => req<SavedSession[]>("/api/sessions");
+export const getSession = (id: string) => req<SavedSession & { learningContent: Lesson }>(`/api/sessions/${id}`);
 export const retestTopic = (id: string) =>
   req<{ sessionId: string; topic: string; learningContent: unknown }>(
     `/api/topics/${id}/retest`,

@@ -61,6 +61,13 @@ class LearnIn(BaseModel):
     model: str = "qwen/qwen3.8-27b"
 
 
+class DocumentLearningRequest(BaseModel):
+    difficulty: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    provider: Literal["groq", "gemini", "openrouter"] = "groq"
+    model: str = "qwen/qwen3.8-27b"
+    instructions: str = ""
+
+
 class CompleteIn(BaseModel):
     correct: int = Field(ge=0)
     incorrect: int = Field(ge=0)

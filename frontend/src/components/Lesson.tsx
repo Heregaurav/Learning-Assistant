@@ -7,10 +7,12 @@ type Props = {
   lesson: L;
   sessionId: string;
   initialAnswers?: Record<string, string>;
+  source?: "topic" | "document";
+  documentMeta?: { title?: string; filename?: string };
 };
 const TABS = ["Explanation", "Flashcards", "Quiz"] as const;
 
-export default function Lesson({ lesson, sessionId, initialAnswers }: Props) {
+export default function Lesson({ lesson, sessionId, initialAnswers, source, documentMeta }: Props) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Explanation");
   const [viewed, setViewed] = useState<Set<string>>(new Set());
   const [currentLesson, setCurrentLesson] = useState(lesson);
@@ -60,12 +62,16 @@ export default function Lesson({ lesson, sessionId, initialAnswers }: Props) {
           <input
             value={refinement}
             onChange={(event) => setRefinement(event.target.value)}
-            placeholder="Refine this lesson, e.g. make it simpler"
-            aria-label="Refine this lesson"
+            placeholder={
+              source === "document"
+                ? "Ask about this document, e.g. what does section 3 mean?"
+                : "Refine this lesson, e.g. make it simpler"
+            }
+            aria-label={source === "document" ? "Ask about this document" : "Refine this lesson"}
             disabled={refining}
           />
           <button className="btn" disabled={refining || refinement.trim().length < 3}>
-            {refining ? "Refining..." : "Refine"}
+            {refining ? (source === "document" ? "Checking the document..." : "Refining...") : source === "document" ? "Ask" : "Refine"}
           </button>
         </form>
         {refineError && <p className="err">{refineError}</p>}
@@ -190,10 +196,11 @@ function BlockView({ block }: { block: ContentBlock }) {
       <div className="chart-bars" role="img" aria-label={block.title}>
         {block.labels.map((label, index) => (
           <div className="chart-bar-item" key={label}>
+            <small className="chart-bar-value">{new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(block.values[index])}</small>
             <div className="chart-bar-track">
               <span style={{ height: `${(block.values[index] / maximum) * 100}%` }} />
             </div>
-            <small>{label}</small>
+            <small className="chart-bar-label">{label}</small>
           </div>
         ))}
       </div>
