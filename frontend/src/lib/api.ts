@@ -37,12 +37,14 @@ async function req<T>(
   init.signal?.addEventListener("abort", () => ctl.abort("cancelled"));
   try {
     const token = localStorage.getItem("google_credential");
+    const guestId = localStorage.getItem("curiosity.guest-id");
     const r = await fetch(BASE + path, {
       ...init,
       signal: ctl.signal,
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(guestId ? { "X-Guest-ID": guestId } : {}),
       },
     });
     if (!r.ok) {
@@ -107,6 +109,9 @@ export const learnStream = async (
       "Content-Type": "application/json",
       ...(localStorage.getItem("google_credential")
         ? { Authorization: `Bearer ${localStorage.getItem("google_credential")}` }
+        : {}),
+      ...(localStorage.getItem("curiosity.guest-id")
+        ? { "X-Guest-ID": localStorage.getItem("curiosity.guest-id") ?? "" }
         : {}),
     },
     body: JSON.stringify({ content, difficulty, provider, model }),

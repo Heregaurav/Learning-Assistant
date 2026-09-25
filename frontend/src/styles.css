@@ -1621,6 +1621,23 @@ blockquote {
   border-radius: 7px;
   display: block;
 }
+.landing-guest-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  border: 1px solid rgba(225, 224, 204, 0.35);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.38);
+  padding: 0.55rem 0.85rem;
+  color: #e1e0cc;
+  font-size: 0.78rem;
+  transition: background 0.2s, border-color 0.2s;
+}
+.landing-guest-button:hover {
+  border-color: #e1e0cc;
+  background: rgba(225, 224, 204, 0.14);
+}
 .landing-nav {
   position: fixed;
   top: 0;

@@ -9,12 +9,19 @@ export default function History() {
     [q, setQ] = useState(""),
     [retesting, setRetesting] = useState<string | null>(null);
   const navigate = useNavigate();
+  const isGuest = localStorage.getItem("curiosity.guest-id") !== null;
   const load = () => {
     setErr("");
     setRows(null);
     getSessions()
       .then(setRows)
-      .catch((e) => setErr(e.message));
+      .catch((e) => {
+        if (isGuest) {
+          setRows([]);
+        } else {
+          setErr(e.message);
+        }
+      });
   };
   useEffect(load, []);
   const startRetest = async (topicId: string) => {

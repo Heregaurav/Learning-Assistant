@@ -4,7 +4,7 @@ import os, re, uuid
 import logging
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google.auth.exceptions import GoogleAuthError
 from google.oauth2 import id_token
@@ -62,8 +62,30 @@ def level(score: int) -> str:
     return "Strong" if score >= 85 else "Good" if score >= 70 else "Needs review"
 
 
-def current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+def current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+    guest_id: str | None = Header(default=None, alias="X-Guest-ID"),
+):
     if not credentials:
+        if guest_id and re.fullmatch(r"guest_[0-9a-f-]{36}", guest_id):
+            db.users.update_one(
+                {"_id": guest_id},
+                {
+                    "$set": {"name": "Guest", "email": "", "picture": "", "updatedAt": now()},
+                    "$setOnInsert": {
+                        "createdAt": now(),
+                        "stats": {
+                            "topicsStudied": 0,
+                            "sessionsCompleted": 0,
+                            "averageScore": 0,
+                            "cardsReviewed": 0,
+                            "quizzesCompleted": 0,
+                        },
+                    },
+                },
+                upsert=True,
+            )
+            return {"id": guest_id, "name": "Guest", "email": "", "picture": "", "isGuest": True}
         raise err(401, "auth_required", "Sign in with Google to continue.")
     if not GOOGLE_CLIENT_ID:
         raise err(503, "auth_not_configured", "Set GOOGLE_CLIENT_ID in backend/.env.")

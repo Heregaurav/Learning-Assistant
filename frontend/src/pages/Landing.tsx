@@ -3,7 +3,11 @@ import type { ReactNode } from "react";
 import { motion, useInView } from "framer-motion";
 import { ArrowRight, Check } from "lucide-react";
 
-type LandingProps = { onStart: () => void; googleSignIn?: ReactNode };
+type LandingProps = {
+  onStart: () => void;
+  onGuest: () => void;
+  googleSignIn?: ReactNode;
+};
 
 const heroVideo ="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_170732_8a9ccda6-5cff-4628-b164-059c500a2b41.mp4";
 const featureVideo = heroVideo;
@@ -88,7 +92,7 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
-export default function Landing({ onStart, googleSignIn }: LandingProps) {
+export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps) {
   const handleStart = () => {
     onStart();
     window.requestAnimationFrame(() =>
@@ -184,9 +188,12 @@ export default function Landing({ onStart, googleSignIn }: LandingProps) {
                   </div>
                 ) : (
                   <p className="mt-4 text-xs text-primary/60">
-                    Sign in with Google to continue your learning journey
+                    Login for saved progress, history, and your personal learning profile.
                   </p>
                 )}
+                <button className="landing-guest-button" onClick={onGuest}>
+                  Use as guest <ArrowRight size={14} />
+                </button>
               </Reveal>
             </div>
           </div>

@@ -9,7 +9,22 @@ import Landing from "./pages/Landing";
 import { Boundary } from "./components/States";
 import { getProfile, googleAuth } from "./lib/api";
 
-type User = { id: string; name: string; email: string; picture: string };
+type User = {
+  id: string;
+  name: string;
+  email: string;
+  picture: string;
+  isGuest?: boolean;
+};
+
+const GUEST_ID_KEY = "curiosity.guest-id";
+const getGuestId = () => {
+  const existing = localStorage.getItem(GUEST_ID_KEY);
+  if (existing) return existing;
+  const id = `guest_${crypto.randomUUID()}`;
+  localStorage.setItem(GUEST_ID_KEY, id);
+  return id;
+};
 
 const prismaBackgroundVideo =
   "https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_170732_8a9ccda6-5cff-4628-b164-059c500a2b41.mp4";
@@ -92,6 +107,16 @@ export default function App() {
   const backgroundVideoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     if (!localStorage.getItem("google_credential")) {
+      const guestId = localStorage.getItem(GUEST_ID_KEY);
+      if (guestId) {
+        setUser({
+          id: guestId,
+          name: "Guest",
+          email: "",
+          picture: "",
+          isGuest: true,
+        });
+      }
       setChecking(false);
       return;
     }
@@ -102,6 +127,7 @@ export default function App() {
           name: profile.name,
           email: profile.email,
           picture: profile.picture,
+          isGuest: false,
         }),
       )
       .catch(() => {
@@ -111,11 +137,22 @@ export default function App() {
       .finally(() => setChecking(false));
   }, []);
   const signIn = (next: User, token: string) => {
+    localStorage.removeItem(GUEST_ID_KEY);
     localStorage.setItem("google_credential", token);
     setUser(next);
   };
+  const useGuest = () => {
+    setUser({
+      id: getGuestId(),
+      name: "Guest",
+      email: "",
+      picture: "",
+      isGuest: true,
+    });
+  };
   const signOut = () => {
     localStorage.removeItem("google_credential");
+    localStorage.removeItem(GUEST_ID_KEY);
     localStorage.removeItem("curiosity.active-lesson");
     setUser(null);
   };
@@ -140,6 +177,7 @@ export default function App() {
     return (
       <Landing
         onStart={() => setShowSignIn(true)}
+        onGuest={useGuest}
         googleSignIn={showSignIn ? <GoogleSignIn onSignedIn={signIn} /> : null}
       />
     );
@@ -218,11 +256,11 @@ export default function App() {
               <button
                 className="profile-button"
                 onClick={signOut}
-                title={`Signed in as ${user.email}`}
+                title={user.isGuest ? "Leave guest mode" : `Signed in as ${user.email}`}
               >
                 {user.picture && <img src={user.picture} alt="" />}
-                <span>{user.name}</span>
-                <small>Sign out</small>
+                <span>{user.isGuest ? "Guest mode" : user.name}</span>
+                <small>{user.isGuest ? "Login for more" : "Sign out"}</small>
               </button>
             </div>
           </header>

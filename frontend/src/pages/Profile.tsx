@@ -7,6 +7,7 @@ type ProfileData = {
   name: string;
   email: string;
   picture?: string;
+  isGuest?: boolean;
   stats: {
     topicsStudied: number;
     sessionsCompleted: number;
@@ -24,8 +25,29 @@ export default function Profile() {
   const [error, setError] = useState("");
   const [retesting, setRetesting] = useState<string | null>(null);
   const navigate = useNavigate();
+  const isGuest = localStorage.getItem("curiosity.guest-id") !== null;
+  const guestProfile: ProfileData = {
+    name: "Guest learner",
+    email: "",
+    isGuest: true,
+    stats: {
+      topicsStudied: 0,
+      sessionsCompleted: 0,
+      averageScore: 0,
+      cardsReviewed: 0,
+      quizzesCompleted: 0,
+    },
+    strong: [],
+    needsReview: [],
+  };
   const load = () => {
     setError("");
+    if (isGuest) {
+      getProfile()
+        .then(setProfile)
+        .catch(() => setProfile(guestProfile));
+      return;
+    }
     getProfile()
       .then(setProfile)
       .catch((e) => setError(e.message));
@@ -46,7 +68,7 @@ export default function Profile() {
       setRetesting(null);
     }
   };
-  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (error && !isGuest) return <ErrorState message={error} onRetry={load} />;
   if (!profile) return <LoadingState />;
   return (
     <>
@@ -66,9 +88,13 @@ export default function Profile() {
             <span>{profile.name.charAt(0).toUpperCase()}</span>
           )}
         </div>
-        <p className="eyebrow">YOUR PROFILE</p>
+        <p className="eyebrow">{profile.isGuest ? "GUEST WORKSPACE" : "YOUR PROFILE"}</p>
         <h1>{profile.name}</h1>
-        <p className="lead">{profile.email}</p>
+        <p className="lead">
+          {profile.isGuest
+            ? "Try the learning tools here. Log in to save your progress and unlock your personal history."
+            : profile.email}
+        </p>
       </header>
       <section className="grid2 profile-stats">
         <section className="panel">

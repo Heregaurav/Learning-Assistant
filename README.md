@@ -4,7 +4,7 @@ Curiosity is a full-stack study assistant for turning a topic, pasted notes, or 
 
 The project is designed around a focused learning loop rather than an open-ended chatbot:
 
-1. Sign in with Google.
+1. Sign in with Google or choose Guest Mode.
 2. Enter a topic or paste study material.
 3. Generate a structured lesson with the selected AI provider.
 4. Read the explanation and inspect generated cards, checklists, or charts.
@@ -73,6 +73,14 @@ The backend sends the existing lesson and refinement instruction to the AI. The 
 - Refined active lessons update that local cache as well.
 - The active local lesson is removed on sign-out.
 
+### Guest Mode
+
+Guest Mode is intended for trying the learning workflow without creating or connecting a Google account. The browser creates a random `guest_<uuid>` identifier and sends it in the `X-Guest-ID` header. The backend uses that identifier to isolate the guest's temporary sessions, topics, quiz results, refinement requests, and retests.
+
+Guest users can use the core learning flow, including lesson generation, flashcards, quizzes, refinement, retesting, History, and Profile. If a guest profile or history request is unavailable, the frontend shows a useful empty guest workspace instead of a blocking authentication error.
+
+Guest data is browser-scoped rather than account-scoped. Clearing browser storage, changing browsers, or using another device loses access to that guest workspace. Choose Google login for a named profile, durable account-based history, and a better long-term experience.
+
 ### Interface and accessibility
 
 - Responsive layouts for desktop and phone-sized screens.
@@ -103,7 +111,7 @@ The backend sends the existing lesson and refinement instruction to the AI. The 
 - PyMongo for MongoDB access.
 - `python-dotenv` for local environment configuration.
 - Google Auth libraries for validating Google identity tokens.
-- OpenAI-compatible client calls for Groq and  Gemini.
+- OpenAI-compatible client calls for Groq, Google Gemini, and OpenRouter.
 
 ### Data services
 
@@ -112,6 +120,7 @@ The backend sends the existing lesson and refinement instruction to the AI. The 
 - One or more supported AI providers:
   - Groq.
   - Google Gemini through its OpenAI-compatible endpoint.
+  - OpenRouter through its OpenAI-compatible endpoint.
 
 
 ## Repository structure
@@ -162,7 +171,7 @@ Install the following before setup:
 - A Google Cloud OAuth client ID.
 - At least one supported AI provider key.
 
-The app needs a database, a valid Google OAuth client, and an AI key to perform a complete end-to-end run. The frontend can install and build without active backend credentials, but sign-in and lesson generation cannot work without them.
+The app needs a database and an AI key to perform the guest learning workflow. Google OAuth is additionally required for named sign-in, account-based persistence, and the full personal experience. The frontend can install and build without active backend credentials, but lesson generation still requires a configured backend and AI provider key.
 
 ## Installation
 
@@ -243,6 +252,8 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ## Google OAuth configuration
 
+Google login is optional for trying the app as a guest, but it is recommended for a durable personal workspace.
+
 1. Open Google Cloud Console.
 2. Create or select a project.
 3. Configure the OAuth consent screen.
@@ -303,10 +314,21 @@ Useful URLs:
 
 ## User guide
 
+### Choose an account mode
+
+The landing page provides two paths:
+
+- **Login with Google**: creates or loads a named user profile and stores progress under that Google account.
+- **Use as guest**: opens a temporary browser-scoped workspace immediately without Google authentication.
+
+The UI labels the authenticated header accordingly. Guest mode shows `Guest mode` and `Login for more`; Google mode shows the user's name and sign-out action.
+
+Log in for saved account history, a named profile, and a better experience when returning from another browser or device. Use Guest Mode when you want to explore the lesson workflow quickly.
+
 ### Generate a lesson
 
-1. Open the frontend and choose Login.
-2. Complete Google sign-in.
+1. Open the frontend.
+2. Choose Login or Use as guest.
 3. On Learn, enter a topic or paste notes.
 4. Select Beginner, Intermediate, or Advanced.
 5. Select the AI model.
@@ -353,11 +375,19 @@ Use Retest beside a topic in Profile or beside a session in History. A retest cr
 
 ## API reference
 
-All application routes except health checks require a Google bearer token in the `Authorization` header:
+Authenticated application routes accept either a Google bearer token or a valid guest identifier. Google users send:
 
 ```http
 Authorization: Bearer <google-credential>
 ```
+
+Guest users send:
+
+```http
+X-Guest-ID: guest_<uuid>
+```
+
+The backend rejects requests that provide neither credential. Guest and Google data are isolated by their respective user IDs.
 
 ### Authentication and health
 
@@ -392,7 +422,7 @@ Authorization: Bearer <google-credential>
 ```text
 React/Vite frontend
         |
-        | Google bearer token + JSON/SSE requests
+  | Google bearer token or guest ID + JSON/SSE requests
         v
 FastAPI backend
         |
@@ -439,13 +469,15 @@ The project does not claim that generated lessons are original, authoritative, o
 - Optional blocks depend on model output. A provider may return no blocks or malformed blocks that are safely discarded.
 - Refinement requires the model to return a complete compatible lesson after the existing lesson is supplied as context. Very large lessons may exceed provider context or output limits.
 - Retests are limited to three per topic and use prior question text as an exclusion hint; semantic duplication cannot be guaranteed.
-- MongoDB availability is required for authentication, saving, profile data, history, retests, and refinement.
+- MongoDB availability is required for saving profile data, history, retests, refinement, and both guest and authenticated sessions.
+- Guest workspaces are tied to browser local storage and are not transferable to a Google account automatically.
+- Guest users do not have a verified identity or cross-device recovery path; login is the recommended mode for important study history.
 - The active Learn-page cache uses browser local storage. Clearing site data removes it, and it is intentionally cleared on sign-out.
-- Google OAuth must be configured for every development origin and deployment origin.
+- Google OAuth must be configured for every development origin and deployment origin when Google login is enabled. Guest Mode does not require Google OAuth.
 - The current frontend has no automated browser test suite or backend integration test suite.
 - The app currently has a cinematic dark visual direction rather than a user-selectable light theme.
 - Provider model names are constrained by the provider configuration in `backend/llm.py`.
-- The API currently relies on bearer credentials and does not implement refresh-token management in the application.
+- Google API calls use bearer credentials, while guest calls use the browser-scoped `X-Guest-ID` header. The application does not implement Google refresh-token management.
 - The project does not include production deployment configuration, database migrations, rate limiting, background job processing, or centralized observability.
 
 ## Validation and development commands
