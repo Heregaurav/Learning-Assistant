@@ -1,4 +1,5 @@
 import { Component, ReactNode } from "react";
+import { AlertCircle, RefreshCw, X } from "lucide-react";
 export const LoadingState = ({ stage = "understanding" }: { stage?: string }) => {
   const copy: Record<string, string> = {
     uploading: "Uploading document…",
@@ -22,19 +23,41 @@ export const LoadingState = ({ stage = "understanding" }: { stage?: string }) =>
 };
 export const ErrorState = ({
   message,
+  title = "Unable to complete request",
+  description,
   onRetry,
+  onDismiss,
 }: {
   message: string;
+  title?: string;
+  description?: string;
   onRetry?: () => void;
+  onDismiss?: () => void;
 }) => (
-  <div className="state err" role="alert">
-    <h2>{message}</h2>
+  <section className="state error-alert" role="alert" aria-live="assertive">
+    <span className="error-alert-icon" aria-hidden="true">
+      <AlertCircle size={19} />
+    </span>
+    <div className="error-alert-copy">
+      <h2>{title}</h2>
+      <p>{description ?? message}</p>
+    </div>
     {onRetry && (
-      <button className="btn" onClick={onRetry}>
-        Try again
+      <button className="error-alert-retry" onClick={onRetry}>
+        <RefreshCw size={14} aria-hidden="true" /> Try again
       </button>
     )}
-  </div>
+    {onDismiss && (
+      <button
+        className="error-alert-dismiss"
+        onClick={onDismiss}
+        aria-label="Dismiss error"
+        title="Dismiss"
+      >
+        <X size={16} aria-hidden="true" />
+      </button>
+    )}
+  </section>
 );
 export const EmptyState = ({
   title,

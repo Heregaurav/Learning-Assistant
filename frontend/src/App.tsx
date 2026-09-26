@@ -104,7 +104,11 @@ export default function App() {
   const [showSignIn, setShowSignIn] = useState(false);
   const [plainBackground, setPlainBackground] = useState(false);
   const [videoPaused, setVideoPaused] = useState(false);
+  const [pictureFailed, setPictureFailed] = useState(false);
   const backgroundVideoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    setPictureFailed(false);
+  }, [user?.picture]);
   useEffect(() => {
     if (!localStorage.getItem("google_credential")) {
       const guestId = localStorage.getItem(GUEST_ID_KEY);
@@ -258,7 +262,16 @@ export default function App() {
                 onClick={signOut}
                 title={user.isGuest ? "Leave guest mode" : `Signed in as ${user.email}`}
               >
-                {user.picture && <img src={user.picture} alt="" />}
+                {user.picture && !pictureFailed ? (
+                  <img
+                    src={user.picture}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    onError={() => setPictureFailed(true)}
+                  />
+                ) : (
+                  user.picture && <span className="profile-button-fallback" aria-hidden="true">{user.name.charAt(0).toUpperCase()}</span>
+                )}
                 <span>{user.isGuest ? "Guest mode" : user.name}</span>
                 <small>{user.isGuest ? "Login for more" : "Sign out"}</small>
               </button>

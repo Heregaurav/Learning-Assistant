@@ -1,6 +1,6 @@
 import json, os, re
 from dotenv import load_dotenv
-from openai import OpenAI, APITimeoutError, APIConnectionError
+from openai import OpenAI, APITimeoutError, APIConnectionError, RateLimitError
 from pydantic import ValidationError
 from models import Lesson, QuizQuestion
 
@@ -11,6 +11,13 @@ class LLMError(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code, self.message = code, message
+
+
+def rate_limit_error() -> LLMError:
+    return LLMError(
+        "provider_rate_limited",
+        "The AI provider is rate limiting requests or the account has run out of quota. Wait briefly or check the provider account.",
+    )
 
 
 SYSTEM = """You are a careful teacher. Turn the learner's topic or notes into a study lesson.
@@ -185,15 +192,27 @@ def _normalize_quiz(quiz, topic):
                 options = q.get("options") or []
                 if not isinstance(options, list):
                     options = []
-                clean_options = [str(opt) for opt in options if str(opt).strip()]
-                while len(clean_options) < 4:
-                    clean_options.append(f"Option {len(clean_options) + 1}")
+                clean_options = []
+                for option in options:
+                    normalized_option = str(option).strip()
+                    if normalized_option and normalized_option not in clean_options:
+                        clean_options.append(normalized_option)
                 correct = str(
                     q.get("correctAnswer")
                     or (clean_options[0] if clean_options else "Option 1")
                 )
                 if correct not in clean_options:
-                    correct = clean_options[0]
+                    correct = clean_options[0] if clean_options else "Option 1"
+                if correct not in clean_options[:4]:
+                    clean_options = clean_options[:3] + [correct]
+                else:
+                    clean_options = clean_options[:4]
+                option_number = 1
+                while len(clean_options) < 4:
+                    candidate = f"Option {option_number}"
+                    option_number += 1
+                    if candidate not in clean_options:
+                        clean_options.append(candidate)
                 normalized.append(
                     {
                         "id": str(q.get("id") or f"q-{i}"),
@@ -340,8 +359,12 @@ def generate_lesson(
             )
         except APITimeoutError:
             raise LLMError("timeout", "The model took too long to respond.")
+        except RateLimitError:
+            raise rate_limit_error()
         except APIConnectionError:
             raise LLMError("llm_failed", "Could not reach the LLM provider.")
+        except LLMError:
+            raise
         except Exception:
             raise LLMError("llm_failed", "The LLM provider returned an error.")
 
@@ -440,8 +463,12 @@ def generate_retest_quiz(
         )
     except APITimeoutError:
         raise LLMError("timeout", "The model took too long to respond.")
+    except RateLimitError:
+        raise rate_limit_error()
     except APIConnectionError:
         raise LLMError("llm_failed", "Could not reach the LLM provider.")
+    except LLMError:
+        raise
     except Exception:
         raise LLMError("llm_failed", "The LLM provider returned an error.")
 
@@ -479,8 +506,12 @@ def refine_lesson(
         )
     except APITimeoutError:
         raise LLMError("timeout", "The model took too long to respond.")
+    except RateLimitError:
+        raise rate_limit_error()
     except APIConnectionError:
         raise LLMError("llm_failed", "Could not reach the LLM provider.")
+    except LLMError:
+        raise
     except Exception:
         raise LLMError("llm_failed", "The LLM provider returned an error.")
     raw = (response.choices[0].message.content or "").strip() if response.choices else ""

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { ContentBlock, Lesson as L } from "../types";
 import { completeSession, refineSession } from "../lib/api";
 import { validateLesson } from "../lib/validate";
+import { ErrorState } from "./States";
 
 type Props = {
   lesson: L;
@@ -74,7 +75,14 @@ export default function Lesson({ lesson, sessionId, initialAnswers, source, docu
             {refining ? (source === "document" ? "Checking the document..." : "Refining...") : source === "document" ? "Ask" : "Refine"}
           </button>
         </form>
-        {refineError && <p className="err">{refineError}</p>}
+        {refineError && (
+          <ErrorState
+            message={refineError}
+            title="Unable to refine lesson"
+            onRetry={() => void refine()}
+            onDismiss={() => setRefineError("")}
+          />
+        )}
       </header>
       <nav className="tabs" role="tablist">
         {TABS.map((t) => (

@@ -54,6 +54,13 @@ def err(status: int, code: str, message: str):
     return HTTPException(status, detail={"code": code, "message": message})
 
 
+def user_topic_id(topic_id: str, user_id: str) -> str:
+    if db.topics.find_one({"_id": topic_id, "userId": user_id}, {"_id": 1}):
+        return topic_id
+    suffix = uuid.uuid5(uuid.NAMESPACE_URL, f"{user_id}:{topic_id}").hex[:16]
+    return f"{topic_id}_{suffix}"
+
+
 def out(doc):
     if doc is not None and "_id" in doc:
         doc["id"] = doc.pop("_id")
@@ -232,11 +239,13 @@ def learn(body: LearnIn, user: dict = Depends(current_user)):
         )
     except LLMError as e:
         raise err(504 if e.code == "timeout" else 502, e.code, e.message)
-    sid, tid = f"session_{uuid.uuid4().hex[:12]}", "topic_" + re.sub(
+    sid = f"session_{uuid.uuid4().hex[:12]}"
+    user_id = user["id"]
+    topic_key = "topic_" + re.sub(
         r"[^a-z0-9]+", "_", lesson.topic.lower()
     ).strip("_")
+    tid = user_topic_id(topic_key, user_id)
     data = lesson.model_dump()
-    user_id = user["id"]
     db.sessions.insert_one(
         {
             "_id": sid,
@@ -321,7 +330,8 @@ async def learn_document(
 
     sid = f"session_{uuid.uuid4().hex[:12]}"
     title = lesson.topic or document.title
-    tid = "doc_" + re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+    topic_key = "doc_" + re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+    tid = user_topic_id(topic_key, user["id"])
     metadata = DocumentProcessingService.document_metadata(document)
     data = lesson.model_dump()
     db.sessions.insert_one(
@@ -377,9 +387,11 @@ def learn_stream(body: LearnIn, user: dict = Depends(current_user)):
         try:
             lesson = generate_lesson(body.content, body.difficulty, body.provider, body.model)
             yield 'data: {"stage":"building"}\n\n'
-            sid, tid = f"session_{uuid.uuid4().hex[:12]}", "topic_" + re.sub(
+            sid = f"session_{uuid.uuid4().hex[:12]}"
+            topic_key = "topic_" + re.sub(
                 r"[^a-z0-9]+", "_", lesson.topic.lower()
             ).strip("_")
+            tid = user_topic_id(topic_key, user["id"])
             data = lesson.model_dump()
             db.sessions.insert_one(
                 {

@@ -141,6 +141,9 @@ export default function Learn() {
     setState({ s: "idle" });
   };
 
+  const rateLimitError =
+    state.s === "error" && /rate limit|rate limiting|quota|usage limit/i.test(state.msg);
+
   return (
     <>
       <section className="learn-search">
@@ -252,7 +255,17 @@ export default function Learn() {
       </section>
       {state.s === "loading" && <LoadingState stage={state.stage} />}
       {state.s === "error" && (
-        <ErrorState message={state.msg} onRetry={generate} />
+        <ErrorState
+          message={state.msg}
+          title={rateLimitError ? "Unable to generate explanation" : undefined}
+          description={
+            rateLimitError
+              ? "The AI provider is temporarily unavailable or your account may have reached its usage limit."
+              : undefined
+          }
+          onRetry={generate}
+          onDismiss={() => setState({ s: "idle" })}
+        />
       )}
       {state.s === "success" && (
         <Lesson
