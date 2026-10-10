@@ -112,6 +112,7 @@ export const googleAuth = (credential: string) =>
 export const getAuthSession = () =>
   req<{
     authenticated: boolean;
+    csrfToken?: string;
     user: {
       id: string;
       name: string;
@@ -119,7 +120,10 @@ export const getAuthSession = () =>
       picture: string;
       role: "ADMIN" | "FACULTY" | "STUDENT";
     } | null;
-  }>("/api/auth/session");
+  }>("/api/auth/session").then((result) => {
+    if (result.csrfToken) setCsrfToken(result.csrfToken);
+    return result;
+  });
 
 export const getProfile = () =>
   req<{

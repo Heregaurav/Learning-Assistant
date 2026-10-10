@@ -974,6 +974,7 @@ blockquote {
   color: #e1e0cc;
   text-shadow: 0 2px 24px rgba(0, 0, 0, 0.4);
 }
+.prisma-auth-shell input,
 .prisma-auth-shell textarea,
 .prisma-auth-shell select {
   border: 1px solid rgba(225, 224, 204, 0.22);
@@ -981,6 +982,15 @@ blockquote {
   background: rgba(16, 16, 16, 0.68);
   backdrop-filter: blur(14px);
   color: #e1e0cc;
+}
+.prisma-auth-shell input::placeholder,
+.prisma-auth-shell textarea::placeholder {
+  color: rgba(225, 224, 204, 0.58);
+}
+.prisma-auth-shell input:focus,
+.prisma-auth-shell textarea:focus,
+.prisma-auth-shell select:focus {
+  color: #f1efdf;
 }
 .prisma-auth-shell textarea {
   min-height: 132px;

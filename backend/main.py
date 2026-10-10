@@ -125,6 +125,9 @@ async def csrf_middleware(request: Request, call_next):
         return await call_next(request)
     session_id = request.cookies.get(SESSION_COOKIE)
     csrf_token = request.headers.get("X-CSRF-Token")
+    guest_id = request.headers.get("X-Guest-ID", "")
+    if not session_id and re.fullmatch(r"guest_[0-9a-f-]{36}", guest_id):
+        return await call_next(request)
     if is_valid_csrf_token(session_id, csrf_token):
         return await call_next(request)
     return JSONResponse(
@@ -968,8 +971,14 @@ def auth_session_status(session_id: str | None):
     if not user:
         db.sessions.delete_one({"_id": session_id})
         return {"authenticated": False, "user": None}
+    csrf_token = secrets.token_urlsafe(32)
+    db.sessions.update_one(
+        {"_id": session_id},
+        {"$set": {"csrf_token_hash": hash_token(csrf_token)}},
+    )
     return {
         "authenticated": True,
+        "csrfToken": csrf_token,
         "user": {
             "id": user["_id"],
             "name": user.get("name", "Learner"),
