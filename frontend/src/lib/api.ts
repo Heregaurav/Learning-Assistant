@@ -14,11 +14,11 @@ import type {
 
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 const CSRF_TOKEN_KEY = "curiosity.csrf-token";
-let csrfToken = localStorage.getItem(CSRF_TOKEN_KEY) ?? "";
+let csrfToken = sessionStorage.getItem(CSRF_TOKEN_KEY) ?? "";
 
 export const setCsrfToken = (token: string) => {
   csrfToken = token;
-  localStorage.setItem(CSRF_TOKEN_KEY, token);
+  sessionStorage.setItem(CSRF_TOKEN_KEY, token);
 };
 
 export class ApiError extends Error {
@@ -448,5 +448,5 @@ export const refineSession = (id: string, prompt: string) =>
 export const logout = () =>
   req<{ status: string }>("/api/auth/logout", { method: "POST" }).finally(() => {
     csrfToken = "";
-    localStorage.removeItem(CSRF_TOKEN_KEY);
+    sessionStorage.removeItem(CSRF_TOKEN_KEY);
   });
