@@ -295,7 +295,6 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
         </div>
       </section>
 
-     
       <section className="bg-[#101010] px-4 py-24 sm:px-6 md:py-32">
         <div className="mx-auto max-w-6xl">
           <Reveal>

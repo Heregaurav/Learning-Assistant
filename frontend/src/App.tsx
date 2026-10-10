@@ -6,14 +6,18 @@ import History from "./pages/History";
 import Session from "./pages/Session";
 import Profile from "./pages/Profile";
 import Landing from "./pages/Landing";
+import ClassroomsPage from "./pages/Classrooms";
+import ClassroomDetail from "./pages/ClassroomDetail";
+import AdminUsers from "./pages/AdminUsers";
 import { Boundary } from "./components/States";
-import { getProfile, googleAuth } from "./lib/api";
+import { getAuthSession, googleAuth, logout } from "./lib/api";
 
 type User = {
   id: string;
   name: string;
   email: string;
   picture: string;
+  role?: "ADMIN" | "FACULTY" | "STUDENT";
   isGuest?: boolean;
 };
 
@@ -38,7 +42,7 @@ declare global {
 function GoogleSignIn({
   onSignedIn,
 }: {
-  onSignedIn: (user: User, token: string) => void;
+  onSignedIn: (user: User) => void;
 }) {
   const [error, setError] = useState("");
   useEffect(() => {
@@ -65,7 +69,7 @@ function GoogleSignIn({
           }
           try {
             const result = await googleAuth(response.credential);
-            onSignedIn(result.user, result.token);
+            onSignedIn(result.user);
           } catch (e) {
             setError((e as Error).message);
           }
@@ -110,39 +114,45 @@ export default function App() {
     setPictureFailed(false);
   }, [user?.picture]);
   useEffect(() => {
-    if (!localStorage.getItem("google_credential")) {
-      const guestId = localStorage.getItem(GUEST_ID_KEY);
-      if (guestId) {
-        setUser({
-          id: guestId,
-          name: "Guest",
-          email: "",
-          picture: "",
-          isGuest: true,
-        });
-      }
-      setChecking(false);
-      return;
-    }
-    getProfile()
-      .then((profile) =>
-        setUser({
-          id: profile.id,
-          name: profile.name,
-          email: profile.email,
-          picture: profile.picture,
-          isGuest: false,
-        }),
-      )
+    getAuthSession()
+      .then(({ authenticated, user: sessionUser }) => {
+        if (authenticated && sessionUser) {
+          setUser({ ...sessionUser, isGuest: false });
+          return;
+        }
+        const guestId = localStorage.getItem(GUEST_ID_KEY);
+        setUser(
+          guestId
+            ? {
+                id: guestId,
+                name: "Guest",
+                email: "",
+                picture: "",
+                role: "STUDENT",
+                isGuest: true,
+              }
+            : null,
+        );
+      })
       .catch(() => {
-        localStorage.removeItem("google_credential");
-        setUser(null);
+        const guestId = localStorage.getItem(GUEST_ID_KEY);
+        if (guestId) {
+          setUser({
+            id: guestId,
+            name: "Guest",
+            email: "",
+            picture: "",
+            role: "STUDENT",
+            isGuest: true,
+          });
+        } else {
+          setUser(null);
+        }
       })
       .finally(() => setChecking(false));
   }, []);
-  const signIn = (next: User, token: string) => {
+  const signIn = (next: User) => {
     localStorage.removeItem(GUEST_ID_KEY);
-    localStorage.setItem("google_credential", token);
     setUser(next);
   };
   const useGuest = () => {
@@ -151,11 +161,12 @@ export default function App() {
       name: "Guest",
       email: "",
       picture: "",
+      role: "STUDENT",
       isGuest: true,
     });
   };
   const signOut = () => {
-    localStorage.removeItem("google_credential");
+    void logout().catch(() => undefined);
     localStorage.removeItem(GUEST_ID_KEY);
     localStorage.removeItem("curiosity.active-lesson");
     setUser(null);
@@ -211,6 +222,8 @@ export default function App() {
               <NavLink to="/" end>
                 Learn
               </NavLink>
+              <NavLink to="/classrooms">Classrooms</NavLink>
+              {user.role === "ADMIN" && <NavLink to="/admin/users">Admin</NavLink>}
               <NavLink to="/history">History</NavLink>
               <NavLink to="/profile">Profile</NavLink>
             </nav>
@@ -281,6 +294,9 @@ export default function App() {
             <Boundary>
               <Routes>
                 <Route path="/" element={<Learn />} />
+                <Route path="/classrooms" element={<ClassroomsPage user={user} />} />
+                <Route path="/classrooms/:classroomId" element={<ClassroomDetail user={user} />} />
+                {user.role === "ADMIN" && <Route path="/admin/users" element={<AdminUsers currentUserId={user.id} />} />}
                 <Route path="/history" element={<History />} />
                 <Route path="/session/:id" element={<Session />} />
                 <Route path="/profile" element={<Profile />} />

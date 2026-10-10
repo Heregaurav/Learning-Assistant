@@ -410,6 +410,7 @@ def generate_lesson(
     try:
         payload = _repair_lesson(data, content.strip()[:80])
         return Lesson.model_validate(payload)
+
     except ValidationError:
         repair = (
             "Return ONLY a corrected JSON object that exactly matches the schema and includes every required field: "
@@ -432,6 +433,36 @@ def generate_lesson(
             return Lesson.model_validate(payload2)
         except Exception:
             raise LLMError("bad_schema", "The JSON did not match the lesson schema.")
+
+
+def generate_classroom_tutor_reply(
+    messages: list[dict[str, str]], provider: str = "groq", model: str | None = None
+) -> str:
+    config = PROVIDERS.get(provider)
+    selected_model = model or (config["default_model"] if config else None)
+    if not config or selected_model not in config["models"]:
+        raise LLMError("llm_failed", "Unsupported model for the selected provider.")
+    try:
+        response = client(provider).chat.completions.create(
+            model=selected_model,
+            temperature=0.25,
+            max_tokens=900,
+            messages=messages,
+        )
+    except APITimeoutError:
+        raise LLMError("timeout", "The tutor took too long to respond.")
+    except RateLimitError:
+        raise rate_limit_error()
+    except APIConnectionError:
+        raise LLMError("llm_failed", "Could not reach the AI provider.")
+    except LLMError:
+        raise
+    except Exception:
+        raise LLMError("llm_failed", "The AI provider could not answer this question.")
+    text = response.choices[0].message.content.strip() if response.choices and response.choices[0].message.content else ""
+    if not text:
+        raise LLMError("empty", "The tutor returned an empty answer.")
+    return text[:6000]
 
 
 def generate_retest_quiz(

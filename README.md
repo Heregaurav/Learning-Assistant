@@ -6,6 +6,7 @@ The project is designed around a focused learning loop rather than an open-ended
 
 1. Sign in with Google or choose Guest Mode.
 2. Enter a topic or paste study material.
+
 3. Generate a structured lesson with the selected AI provider.
 4. Read the explanation and inspect generated cards, checklists, or charts.
 5. Flip through flashcards.
@@ -273,6 +274,12 @@ Google login is optional for trying the app as a guest, but it is recommended fo
 
 The backend validates the Google identity token, creates or updates the user record, and uses the Google subject ID as the MongoDB user identifier. The frontend stores the returned credential in browser local storage for subsequent API calls.
 
+### First platform administrator and classroom creation
+
+New Google accounts are assigned the `STUDENT` role. To provision the first platform administrator, set `BOOTSTRAP_ADMIN_EMAIL` in `backend/.env` to the email address of the Google account that should own the platform. Sign in with that account once; Google must report the email as verified, and bootstrap is allowed only while no administrator exists. Restart the backend after changing the environment file.
+
+The first administrator can create classrooms immediately or open **Admin** in the app and assign `FACULTY` to other registered users. Faculty then open **Classrooms** and use **Create classroom**. Students join an existing class with its join code. Do not use `BOOTSTRAP_ADMIN_EMAIL` as a general role-management mechanism; later role changes belong in the admin screen.
+
 ## MongoDB configuration
 
 For MongoDB Atlas:
@@ -525,6 +532,10 @@ Approximate implementation and debugging time: **8-10 hours**.
 - Retest limits, CORS debugging, backend restarts, and validation passes.
 - README and project documentation.
 
+<<<<<<< HEAD
 The estimate is approximate because development included iterative browser checks, model-response handling, local environment corrections, and responsive adjustments across multiple viewport sizes.
 
 
+=======
+The estimate is approximate because development included iterative browser checks, model-response handling, local environment corrections, and responsive adjustments across multiple viewport size.
+>>>>>>> 26978b3 (addeded the classroom)

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ArrowUp, BookOpen, Search, FileText, Plus, X } from "lucide-react";
-import { learnStream, ApiError, MSG, learnDocument } from "../lib/api";
+import { getClassroomCurriculum, learnStream, ApiError, MSG, learnDocument } from "../lib/api";
 import { validateLesson } from "../lib/validate";
 import type { Lesson as L } from "../types";
 import Lesson from "../components/Lesson";
@@ -28,7 +29,24 @@ const PROVIDERS = [
 ];
 const ACTIVE_LESSON_KEY = "curiosity.active-lesson";
 
-export default function Learn() {
+type LearnProps = {
+  classroomId?: string;
+  curriculumTopicId?: string;
+  classroomOnly?: boolean;
+};
+
+export default function Learn({
+  classroomId: embeddedClassroomId,
+  curriculumTopicId: embeddedTopicId,
+  classroomOnly = false,
+}: LearnProps = {}) {
+  const [searchParams] = useSearchParams();
+  const classroomId = embeddedClassroomId ?? searchParams.get("classroomId");
+  const curriculumTopicId = embeddedTopicId ?? searchParams.get("topicId");
+  const classroomContext = classroomId && curriculumTopicId
+    ? { classroomId, curriculumTopicId }
+    : undefined;
+  const [classroomTopicTitle, setClassroomTopicTitle] = useState("");
   const [text, setText] = useState(""),
     [difficulty, setDifficulty] = useState("beginner");
   const [documentFile, setDocumentFile] = useState<File | null>(null);
@@ -38,7 +56,7 @@ export default function Learn() {
     try {
       const saved = JSON.parse(localStorage.getItem(ACTIVE_LESSON_KEY) ?? "null");
       const lesson = validateLesson(saved?.lesson);
-      return lesson && typeof saved?.id === "string"
+      return lesson && typeof saved?.id === "string" && !classroomId
         ? { s: "success", id: saved.id, lesson }
         : { s: "idle" };
     } catch {
@@ -47,6 +65,28 @@ export default function Learn() {
   });
   const reqId = useRef(0),
     ctl = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!classroomId || !curriculumTopicId) return;
+    let cancelled = false;
+    setState({ s: "idle" });
+    getClassroomCurriculum(classroomId)
+      .then((curriculum) => {
+        const topic = curriculum.modules
+          .flatMap((module) => module.topics)
+          .find((item) => item.id === curriculumTopicId);
+        if (!topic) throw new Error("This topic is not part of the published classroom curriculum.");
+        if (cancelled) return;
+        setClassroomTopicTitle(topic.title);
+        setText(topic.title);
+      })
+      .catch((reason) => {
+        if (!cancelled) setState({ s: "error", msg: (reason as Error).message });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [classroomId, curriculumTopicId]);
 
   useEffect(() => {
     if (state.s === "success") {
@@ -77,6 +117,7 @@ export default function Learn() {
           (stage) => {
             if (id === reqId.current) setState({ s: "loading", stage });
           },
+          classroomContext,
         );
         if (id !== reqId.current) return;
         const lesson = validateLesson(r.learningContent);
@@ -144,11 +185,14 @@ export default function Learn() {
   const rateLimitError =
     state.s === "error" && /rate limit|rate limiting|quota|usage limit/i.test(state.msg);
 
+
+
   return (
     <>
       <section className="learn-search">
-        <p className="learn-kicker">Search</p>
-        <h1>What do you want to know?</h1>
+        <p className="learn-kicker">{classroomTopicTitle ? "Classroom curriculum" : "Search"}</p>
+        <h1>{classroomOnly ? "What do you want to understand?" : "What do you want to know?"}</h1>
+        {classroomTopicTitle && <p className="mb-4 text-sm text-primary/80">Learning the published classroom topic: {classroomTopicTitle}</p>}
 
         <input
           ref={documentInput}
@@ -167,7 +211,7 @@ export default function Learn() {
             onChange={(event) => setText(event.target.value)}
             rows={3}
             aria-label="Topic, question, or document instructions"
-            placeholder="Ask anything..."
+            placeholder={classroomOnly ? "Ask about this curriculum topic..." : "Ask anything..."}
           />
 
           {documentFile && (
@@ -232,26 +276,28 @@ export default function Learn() {
           ))}
         </div>
 
-        <div className="learn-suggestions">
-          <button
-            className="learn-suggestion learn-suggestion-primary"
-            onClick={() => setText("Explain a topic from trusted sources")}
-          >
-            <strong>
-              <Search size={16} /> Search any Topic
-            </strong>
-            <span>Get a clear, structured explanation of any topic.</span>
-          </button>
-          <button
-            className="learn-suggestion"
-            onClick={() => setText("Turn my notes into a study lesson")}
-          >
-            <strong>
-              <BookOpen size={16} /> Turn notes into a lesson
-            </strong>
-            <span>Build explanations, flashcards, and a quiz.</span>
-          </button>
-        </div>
+        {!classroomOnly && (
+          <div className="learn-suggestions">
+            <button
+              className="learn-suggestion learn-suggestion-primary"
+              onClick={() => setText("Explain a topic from trusted sources")}
+            >
+              <strong>
+                <Search size={16} /> Search any Topic
+              </strong>
+              <span>Get a clear, structured explanation of any topic.</span>
+            </button>
+            <button
+              className="learn-suggestion"
+              onClick={() => setText("Turn my notes into a study lesson")}
+            >
+              <strong>
+                <BookOpen size={16} /> Turn notes into a lesson
+              </strong>
+              <span>Build explanations, flashcards, and a quiz.</span>
+            </button>
+          </div>
+        )}
       </section>
       {state.s === "loading" && <LoadingState stage={state.stage} />}
       {state.s === "error" && (

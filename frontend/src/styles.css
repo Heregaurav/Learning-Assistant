@@ -1507,6 +1507,7 @@ blockquote {
 }
 .prisma-auth-shell .learn-difficulty {
   display: flex;
+  flex-direction:column;
   width: 100%;
   margin-top: 0.75rem;
   border: 1px solid rgba(225, 224, 204, 0.15);

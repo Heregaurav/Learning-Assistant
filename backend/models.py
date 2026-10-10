@@ -1,4 +1,6 @@
+from datetime import datetime
 from typing import List, Literal, Dict, Optional
+from urllib.parse import urlparse
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -59,6 +61,17 @@ class LearnIn(BaseModel):
     difficulty: Literal["beginner", "intermediate", "advanced"] = "beginner"
     provider: Literal["groq", "gemini", "openrouter"] = "groq"
     model: str = "qwen/qwen3.8-27b"
+    classroomId: Optional[str] = None
+    curriculumTopicId: Optional[str] = None
+    curriculumConceptId: Optional[str] = None
+
+    @model_validator(mode="after")
+    def classroom_context_pair(self):
+        if bool(self.classroomId) != bool(self.curriculumTopicId):
+            raise ValueError("classroomId and curriculumTopicId must be provided together")
+        if self.curriculumConceptId and not self.classroomId:
+            raise ValueError("curriculumConceptId requires classroom context")
+        return self
 
 
 class DocumentLearningRequest(BaseModel):
@@ -88,3 +101,96 @@ class RefineIn(BaseModel):
 
 class GoogleAuthIn(BaseModel):
     credential: str = Field(min_length=20)
+
+
+class ClassroomCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    subject: str = Field(min_length=1, max_length=200)
+    section: str = Field(min_length=1, max_length=50)
+    semester: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=2000)
+
+
+class ClassroomJoinIn(BaseModel):
+    joinCode: str = Field(min_length=3, max_length=20)
+
+
+class UserRoleUpdateIn(BaseModel):
+    role: str = Field(min_length=3, max_length=20)
+
+
+class CurriculumModuleIn(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=2000)
+    position: int = Field(default=0, ge=0)
+
+
+class CurriculumConceptIn(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=2000)
+    prerequisites: List[str] = Field(default_factory=list)
+
+
+class CurriculumMaterialIn(BaseModel):
+    kind: Literal["note", "link"]
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(default="", max_length=20000)
+    url: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_link(self):
+        if self.kind == "link":
+            parsed = urlparse(self.url or "")
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("link materials require an http or https URL")
+        return self
+
+
+class CurriculumTopicIn(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=3000)
+    learningObjectives: List[str] = Field(default_factory=list, max_length=30)
+    prerequisites: List[str] = Field(default_factory=list)
+    concepts: List[CurriculumConceptIn] = Field(default_factory=list, max_length=50)
+    materials: List[CurriculumMaterialIn] = Field(default_factory=list, max_length=30)
+
+
+class ClassroomAssessmentIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    kind: Literal["assignment", "quiz", "test", "practice", "curiosity"]
+    instructions: str = Field(default="", max_length=10000)
+    topicId: Optional[str] = None
+    conceptIds: List[str] = Field(default_factory=list, max_length=50)
+    dueAt: Optional[datetime] = None
+    maxMarks: float = Field(gt=0, le=10000)
+    rubric: str = Field(default="", max_length=10000)
+    expectedAnswer: str = Field(default="", max_length=10000)
+    published: bool = False
+
+
+class ClassroomSubmissionIn(BaseModel):
+    answer: str = Field(min_length=1, max_length=50000)
+
+
+class ClassroomGradeIn(BaseModel):
+    score: float = Field(ge=0)
+    feedback: str = Field(default="", max_length=10000)
+    release: bool = False
+
+
+class ClassroomPostIn(BaseModel):
+    kind: Literal["announcement", "discussion"]
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=12000)
+
+
+class ClassroomReplyIn(BaseModel):
+    body: str = Field(min_length=1, max_length=5000)
+
+
+class ClassroomTutorMessageIn(BaseModel):
+    message: str = Field(min_length=1, max_length=5000)
+    topicId: Optional[str] = None
+    conceptName: Optional[str] = Field(default=None, max_length=160)
+    provider: Literal["groq", "gemini", "openrouter"] = "groq"
+    model: str = "qwen/qwen3.8-27b"
