@@ -78,6 +78,12 @@ main {
   display: flex;
   gap: 24px;
 }
+.mobile-menu-toggle {
+  display: none;
+}
+.mobile-menu {
+  display: contents;
+}
 .top a {
   color: var(--ink);
   text-decoration: none;
@@ -714,30 +720,35 @@ blockquote {
 @media (max-width: 640px) {
   .top {
     position: fixed;
-    bottom: 0;
+    top: max(8px, env(safe-area-inset-top));
     left: 0;
     right: 0;
-    background: var(--navy);
+    bottom: auto;
+    background: rgba(0, 0, 0, 0.72);
     z-index: 5;
-    justify-content: center;
-    padding: 10px;
+    justify-content: space-between;
+    padding: 10px 12px;
   }
   .top .logo {
-    display: none;
+    display: inline-flex;
   }
-  .top a {
-    color: #fff;
-  }
-  .top a.active {
-    border-color: #fff;
+  .mobile-menu-toggle {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border: 1px solid rgba(225, 224, 204, 0.25);
+    border-radius: 10px;
+    background: rgba(225, 224, 204, 0.08);
+    color: #e1e0cc;
+    cursor: pointer;
   }
   .prisma-auth-shell .top {
     position: fixed;
-    top: 4px;
-    bottom: auto;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    left: 0;
-    right: 0;
+    top: max(8px, env(safe-area-inset-top));
+    display: flex;
+    left: 8px;
+    right: 8px;
     width: auto;
     max-width: none;
     margin: 0;
@@ -750,22 +761,64 @@ blockquote {
   .prisma-auth-shell .top .logo {
     display: inline-flex;
   }
-  .prisma-auth-shell .top nav {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: clamp(4px, 2vw, 12px);
-    width: 100%;
-    overflow: visible;
+  .prisma-auth-shell .mobile-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: auto;
+    right: 0;
+    width: min(240px, calc(100vw - 32px));
+    padding: 12px;
+    border: 1px solid rgba(225, 224, 204, 0.16);
+    border-radius: 16px;
+    background: rgba(8, 10, 12, 0.94);
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(18px);
   }
-  .prisma-auth-shell .top nav a {
-    min-width: 0;
-    padding: 6px 5px;
-    text-align: center;
-    font-size: clamp(10px, 2.8vw, 12px);
+  .prisma-auth-shell .mobile-menu.is-open {
+    display: grid;
+    gap: 12px;
+  }
+  .prisma-auth-shell .mobile-menu nav {
+    display: grid;
+    gap: 4px;
+  }
+  .prisma-auth-shell .mobile-menu nav a {
+    display: block;
+    padding: 11px 10px;
+    border-radius: 8px;
+    color: #e1e0cc;
+    font-size: 14px;
+  }
+  .prisma-auth-shell .mobile-menu nav a:hover,
+  .prisma-auth-shell .mobile-menu nav a.active {
+    border: 0;
+    background: rgba(225, 224, 204, 0.1);
+  }
+  .prisma-auth-shell .mobile-menu .nav-actions {
+    display: grid;
+    gap: 10px;
+    justify-items: stretch;
+    padding-top: 10px;
+    border-top: 1px solid rgba(225, 224, 204, 0.12);
+  }
+  .prisma-auth-shell .mobile-menu .background-controls {
+    display: grid;
+    gap: 6px;
+    justify-content: stretch;
+  }
+  .prisma-auth-shell .mobile-menu .background-control {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+  }
+  .prisma-auth-shell .mobile-menu .profile-button {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 8px 4px;
   }
   .prisma-auth-shell main {
-    padding-top: 5rem;
+    padding-top: 6rem;
     padding-bottom: 2rem;
   }
 }
@@ -1871,6 +1924,62 @@ blockquote {
   .prisma-auth-shell main > .list .row.link .score-pill {
     padding-right: 8px;
     padding-left: 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .prisma-auth-shell .top {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .prisma-auth-shell .top .mobile-menu-toggle {
+    display: grid !important;
+    margin-left: auto;
+  }
+
+  .prisma-auth-shell .top .mobile-menu nav {
+    display: grid !important;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .prisma-auth-shell .top .mobile-menu nav a {
+    width: 100%;
+    text-align: left;
+  }
+
+  .prisma-auth-shell .top .mobile-menu .nav-actions {
+    align-items: stretch;
+    justify-items: stretch;
+  }
+
+  .prisma-auth-shell .top .mobile-menu .background-controls {
+    grid-template-columns: 1fr;
+    width: 100%;
+    justify-items: stretch;
+  }
+
+  .prisma-auth-shell .top .mobile-menu .background-control,
+  .prisma-auth-shell .top .mobile-menu .profile-button {
+    width: 100%;
+    min-height: 38px;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .prisma-auth-shell .top .mobile-menu .background-control svg,
+  .prisma-auth-shell .top .mobile-menu .profile-button img,
+  .prisma-auth-shell .top .mobile-menu .profile-button .profile-button-fallback {
+    margin-left: 0;
+  }
+
+  .prisma-auth-shell .top .mobile-menu .background-control-label,
+  .prisma-auth-shell .top .mobile-menu .profile-button > span:not(.profile-button-fallback),
+  .prisma-auth-shell .top .mobile-menu .profile-button small {
+    display: inline;
   }
 }
 

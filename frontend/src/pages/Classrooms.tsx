@@ -6,9 +6,10 @@ import type { Classroom, Role } from "../types";
 
 type Props = {
   user: { id: string; name: string; email: string; role?: Role; isGuest?: boolean } | null;
+  onRequireSignIn: () => void;
 };
 
-export default function ClassroomsPage({ user }: Props) {
+export default function ClassroomsPage({ user, onRequireSignIn }: Props) {
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [form, setForm] = useState({
     name: "",
@@ -29,6 +30,10 @@ export default function ClassroomsPage({ user }: Props) {
       const data = await getClassrooms();
       setClassrooms(data);
     } catch (err) {
+      if ((err as { code?: string }).code === "auth_required") {
+        onRequireSignIn();
+        return;
+      }
       setError((err as Error).message || "Unable to load classrooms.");
     }
   };

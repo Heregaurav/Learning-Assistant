@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
-import { Pause, Play, Sun } from "lucide-react";
+import { Menu, Pause, Play, Sun, X } from "lucide-react";
 import Learn from "./pages/Learn";
 import History from "./pages/History";
 import Session from "./pages/Session";
@@ -22,9 +22,14 @@ type User = {
 };
 
 const GUEST_ID_KEY = "curiosity.guest-id";
-const getGuestId = () => {
+const getStoredGuestId = () => {
   const existing = localStorage.getItem(GUEST_ID_KEY);
+  return existing && /^guest_[0-9a-f-]{36}$/.test(existing) ? existing : null;
+};
+const getGuestId = () => {
+  const existing = getStoredGuestId();
   if (existing) return existing;
+  localStorage.removeItem(GUEST_ID_KEY);
   const id = `guest_${crypto.randomUUID()}`;
   localStorage.setItem(GUEST_ID_KEY, id);
   return id;
@@ -108,6 +113,7 @@ export default function App() {
   const [showSignIn, setShowSignIn] = useState(false);
   const [plainBackground, setPlainBackground] = useState(false);
   const [videoPaused, setVideoPaused] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pictureFailed, setPictureFailed] = useState(false);
   const backgroundVideoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
@@ -120,7 +126,7 @@ export default function App() {
           setUser({ ...sessionUser, isGuest: false });
           return;
         }
-        const guestId = localStorage.getItem(GUEST_ID_KEY);
+        const guestId = getStoredGuestId();
         setUser(
           guestId
             ? {
@@ -135,7 +141,7 @@ export default function App() {
         );
       })
       .catch(() => {
-        const guestId = localStorage.getItem(GUEST_ID_KEY);
+        const guestId = getStoredGuestId();
         if (guestId) {
           setUser({
             id: guestId,
@@ -218,16 +224,27 @@ export default function App() {
               <img src="/curiosity2.jpg" alt="Curiosity" />
               <span>curiosity</span>
             </a>
-            <nav aria-label="Main">
-              <NavLink to="/" end>
-                Learn
-              </NavLink>
-              <NavLink to="/classrooms">Classrooms</NavLink>
-              {user.role === "ADMIN" && <NavLink to="/admin/users">Admin</NavLink>}
-              <NavLink to="/history">History</NavLink>
-              <NavLink to="/profile">Profile</NavLink>
-            </nav>
-            <div className="nav-actions">
+            <button
+              type="button"
+              className="mobile-menu-toggle"
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-navigation"
+              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+            >
+              {mobileMenuOpen ? <X size={21} /> : <Menu size={21} />}
+            </button>
+            <div id="mobile-navigation" className={`mobile-menu${mobileMenuOpen ? " is-open" : ""}`}>
+              <nav aria-label="Main">
+                <NavLink to="/" end onClick={() => setMobileMenuOpen(false)}>
+                  Learn
+                </NavLink>
+                <NavLink to="/classrooms" onClick={() => setMobileMenuOpen(false)}>Classrooms</NavLink>
+                {user.role === "ADMIN" && <NavLink to="/admin/users" onClick={() => setMobileMenuOpen(false)}>Admin</NavLink>}
+                <NavLink to="/history" onClick={() => setMobileMenuOpen(false)}>History</NavLink>
+                <NavLink to="/profile" onClick={() => setMobileMenuOpen(false)}>Profile</NavLink>
+              </nav>
+              <div className="nav-actions">
               <div
                 className="background-controls"
                 aria-label="Background controls"
@@ -270,11 +287,14 @@ export default function App() {
                   </span>
                 </button>
               </div>
-              <button
-                className="profile-button"
-                onClick={signOut}
-                title={user.isGuest ? "Leave guest mode" : `Signed in as ${user.email}`}
-              >
+                <button
+                  className="profile-button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    signOut();
+                  }}
+                  title={user.isGuest ? "Leave guest mode" : `Signed in as ${user.email}`}
+                >
                 {user.picture && !pictureFailed ? (
                   <img
                     src={user.picture}
@@ -287,14 +307,27 @@ export default function App() {
                 )}
                 <span>{user.isGuest ? "Guest mode" : user.name}</span>
                 <small>{user.isGuest ? "Login for more" : "Sign out"}</small>
-              </button>
+                </button>
+              </div>
             </div>
           </header>
           <main>
             <Boundary>
               <Routes>
                 <Route path="/" element={<Learn />} />
-                <Route path="/classrooms" element={<ClassroomsPage user={user} />} />
+                <Route
+                  path="/classrooms"
+                  element={
+                    <ClassroomsPage
+                      user={user}
+                      onRequireSignIn={() => {
+                        localStorage.removeItem(GUEST_ID_KEY);
+                        setUser(null);
+                        setShowSignIn(true);
+                      }}
+                    />
+                  }
+                />
                 <Route path="/classrooms/:classroomId" element={<ClassroomDetail user={user} />} />
                 {user.role === "ADMIN" && <Route path="/admin/users" element={<AdminUsers currentUserId={user.id} />} />}
                 <Route path="/history" element={<History />} />
