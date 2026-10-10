@@ -527,9 +527,4 @@ Approximate implementation and debugging time: **8-10 hours**.
 
 The estimate is approximate because development included iterative browser checks, model-response handling, local environment corrections, and responsive adjustments across multiple viewport sizes.
 
-## License and project status
-
-No explicit open-source license is currently included in the repository. Add a license before distributing the project publicly.
-
-The project is a development-ready prototype: the primary learning workflow is implemented, persisted, and validated locally, while production concerns such as automated tests, rate limiting, deployment configuration, and stronger AI factuality safeguards remain future work.
 
