@@ -1,6 +1,6 @@
 import json, os, re
 from dotenv import load_dotenv
-from openai import OpenAI, APITimeoutError, APIConnectionError, RateLimitError
+from openai import APIError, OpenAI, APITimeoutError, APIConnectionError, RateLimitError
 from pydantic import ValidationError
 from models import Lesson, QuizQuestion
 
@@ -78,6 +78,9 @@ Return ONLY one JSON object in this shape:
 Every question must test a different topic-specific fact or idea and must not repeat the supplied existing questions.
 Use exactly 4 distinct options per question and copy correctAnswer exactly from options.
 Keep each explanation short. Return valid JSON only."""
+CURRICULUM_SYSTEM = """You are a curriculum designer. Return only JSON with this shape:
+{"modules":[{"title":"...","description":"...","topics":[{"title":"...","description":"...","learningObjectives":["..."],"prerequisites":["topic title"],"concepts":[{"name":"...","description":"...","prerequisites":["concept name"]}]}]}]}
+Create an ordered, complete curriculum from the teacher's syllabus. Do not invent unrelated material. Use prerequisite topic titles only when supported by the syllabus."""
 
 PROVIDERS = {
     "groq": {
@@ -411,6 +414,7 @@ def generate_lesson(
         payload = _repair_lesson(data, content.strip()[:80])
         return Lesson.model_validate(payload)
 
+
     except ValidationError:
         repair = (
             "Return ONLY a corrected JSON object that exactly matches the schema and includes every required field: "
@@ -433,6 +437,47 @@ def generate_lesson(
             return Lesson.model_validate(payload2)
         except Exception:
             raise LLMError("bad_schema", "The JSON did not match the lesson schema.")
+
+
+def generate_curriculum(prompt: str, provider: str = "groq", model: str | None = None) -> dict:
+    config = PROVIDERS.get(provider)
+    model = model or (config["default_model"] if config else None)
+    if not config or model not in config["models"]:
+        raise LLMError("llm_failed", "Unsupported model for the selected provider.")
+    try:
+        response = client(provider).chat.completions.create(
+            model=model,
+            temperature=0.15,
+            max_tokens=3500,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": CURRICULUM_SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        raw = (
+            response.choices[0].message.content or ""
+        ).strip() if response.choices else ""
+        if not raw:
+            raise ValueError("The provider returned an empty curriculum draft.")
+        data = json.loads(raw)
+        modules = data.get("modules") if isinstance(data, dict) else None
+        if not isinstance(modules, list) or not modules:
+            raise ValueError("No curriculum modules returned.")
+        return {"modules": modules}
+    except (APITimeoutError, APIConnectionError, RateLimitError) as exc:
+        if isinstance(exc, APITimeoutError):
+            raise LLMError("timeout", "The model took too long to respond.")
+        if isinstance(exc, RateLimitError):
+            raise rate_limit_error()
+        raise LLMError("llm_failed", "Could not reach the LLM provider.")
+    except APIError as exc:
+        raise LLMError(
+            "llm_failed",
+            "The AI provider rejected the curriculum request. Check the selected model and provider settings.",
+        ) from exc
+    except (json.JSONDecodeError, TypeError, ValueError):
+        raise LLMError("bad_schema", "The model returned an invalid curriculum draft.")
 
 
 def generate_classroom_tutor_reply(

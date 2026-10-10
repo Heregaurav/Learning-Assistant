@@ -90,7 +90,7 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
                   {analytics.students.map((student) => (
                     <button key={student.studentId} onClick={() => setGraphStudentId(student.studentId)} className={`grid w-full grid-cols-[1fr_auto] gap-2 py-3 text-left hover:bg-white/5 ${graphStudentId === student.studentId ? "text-primary" : ""}`}>
                       <span className="truncate text-sm">{student.studentId}</span>
-                      <span className="text-xs">{student.mastery.score === null ? "No evidence" : `${student.mastery.score}% ${student.mastery.state}`} · {student.coverage.percent}% coverage</span>
+                      <span className="text-xs">{student.mastery.score === null ? "No evidence" : `${student.mastery.score}% ${student.mastery.state}`} · {student.coverage.percent}% coverage{student.attention ? " · Needs attention" : ""}</span>
                     </button>
                   ))}
                 </div>

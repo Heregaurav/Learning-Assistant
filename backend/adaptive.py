@@ -31,7 +31,8 @@ def build_adaptive_path(
     for module in modules:
         for topic in module.get("topics", []):
             topic_id = str(topic["id"])
-            mastery = summaries[topic_id]
+            topic_events = [event for event in event_list if str(event.get("topicId")) == topic_id]
+            mastery = {**summaries[topic_id], **_assessment_signals(topic_events)}
             prerequisite_ids = [str(item) for item in topic.get("prerequisites", [])]
             blocked_by = [
                 topic_lookup[prerequisite_id].get("title", prerequisite_id)
@@ -50,7 +51,10 @@ def build_adaptive_path(
                 reason = "Start this topic to build your first evidence."
             elif mastery["score"] < REVISION_SCORE:
                 status = "revision_needed"
-                reason = "Recent evidence shows this topic needs targeted revision."
+                reason = _revision_reason(mastery)
+            elif mastery["trend"] == "declining":
+                status = "revision_needed"
+                reason = _revision_reason(mastery) if mastery.get("weakQuestionIds") else "Recent quiz performance is declining; revisit the weak questions before progressing."
             elif mastery["score"] < ADVANCE_SCORE or mastery["evidenceCount"] < 2:
                 status = "practice"
                 reason = "Complete another practice check to confirm understanding."
@@ -88,6 +92,35 @@ def build_adaptive_path(
             "percent": round(completed / len(items) * 100) if items else 0,
         },
     }
+
+
+def _assessment_signals(events: list[dict[str, Any]]) -> dict[str, Any]:
+    scores = [
+        float(event["masteryScore"])
+        for event in events
+        if event.get("evaluationStatus") == "complete"
+        and isinstance(event.get("masteryScore"), (int, float))
+    ]
+    recent = scores[-3:]
+    trend = "stable"
+    if len(recent) >= 2 and recent[-1] > recent[0] + 5:
+        trend = "improving"
+    elif len(recent) >= 2 and recent[-1] < recent[0] - 5:
+        trend = "declining"
+    weak_questions = sorted({
+        str(result.get("questionId"))
+        for event in events
+        for result in event.get("questionResults", [])
+        if result.get("correct") is False and result.get("questionId")
+    })
+    return {"trend": trend, "weakQuestionIds": weak_questions}
+
+
+def _revision_reason(mastery: dict[str, Any]) -> str:
+    weak_questions = mastery.get("weakQuestionIds", [])
+    if weak_questions:
+        return f"Review this topic because {len(weak_questions)} quiz question(s) were missed repeatedly."
+    return "Recent evidence shows this topic needs targeted revision."
 
 
 def _next_action(status: str) -> str:

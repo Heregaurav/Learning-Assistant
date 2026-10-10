@@ -125,6 +125,12 @@ class CurriculumModuleIn(BaseModel):
     position: int = Field(default=0, ge=0)
 
 
+class CurriculumGenerateIn(BaseModel):
+    prompt: str = Field(min_length=10, max_length=20000)
+    provider: Literal["groq", "gemini", "openrouter"] = "groq"
+    model: str = "qwen/qwen3.8-27b"
+
+
 class CurriculumConceptIn(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str = Field(default="", max_length=2000)

@@ -1,24 +1,27 @@
 import type {
-  DocumentLearningRequest,
-  DocumentLearningResponse,
-  Lesson,
-  SavedSession,
-  ClassroomCurriculum,
-  CurriculumModule,
-  CurriculumTopic,
+  Classroom,
   ClassroomAssessment,
-  ClassroomSubmission,
+  ClassroomCurriculum,
   ClassroomKnowledgeGraph,
   ClassroomProgress,
+  ClassroomSubmission,
+  ClassroomDraft,
+  DocumentLearningRequest,
+  DocumentLearningResponse,
+  CurriculumModule,
+  CurriculumTopic,
+  Lesson,
+  SavedSession,
 } from "../types";
 
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+const apiUrl = (path: string) => `${BASE}/${path.replace(/^\/+/, "")}`;
 const CSRF_TOKEN_KEY = "curiosity.csrf-token";
-let csrfToken = sessionStorage.getItem(CSRF_TOKEN_KEY) ?? "";
+let csrfToken = localStorage.getItem(CSRF_TOKEN_KEY) ?? "";
 
 export const setCsrfToken = (token: string) => {
   csrfToken = token;
-  sessionStorage.setItem(CSRF_TOKEN_KEY, token);
+  localStorage.setItem(CSRF_TOKEN_KEY, token);
 };
 
 export class ApiError extends Error {
@@ -59,7 +62,7 @@ async function req<T>(
   init.signal?.addEventListener("abort", () => ctl.abort("cancelled"));
   try {
     const guestId = localStorage.getItem("curiosity.guest-id");
-    const r = await fetch(BASE + path, {
+    const r = await fetch(apiUrl(path), {
       ...init,
       credentials: "include",
       signal: ctl.signal,
@@ -93,13 +96,7 @@ async function req<T>(
 
 export const googleAuth = (credential: string) =>
   req<{
-    user: {
-      id: string;
-      name: string;
-      email: string;
-      picture: string;
-      role?: "ADMIN" | "FACULTY" | "STUDENT";
-    };
+    user: { id: string; name: string; email: string; picture: string; role: "ADMIN" | "FACULTY" | "STUDENT" };
     csrfToken: string;
   }>("/api/auth/google", {
     method: "POST",
@@ -108,30 +105,13 @@ export const googleAuth = (credential: string) =>
     setCsrfToken(result.csrfToken);
     return result;
   });
-
-export const getAuthSession = () =>
-  req<{
-    authenticated: boolean;
-    csrfToken?: string;
-    user: {
-      id: string;
-      name: string;
-      email: string;
-      picture: string;
-      role: "ADMIN" | "FACULTY" | "STUDENT";
-    } | null;
-  }>("/api/auth/session").then((result) => {
-    if (result.csrfToken) setCsrfToken(result.csrfToken);
-    return result;
-  });
-
 export const getProfile = () =>
   req<{
     id: string;
     name: string;
     email: string;
     picture: string;
-    role?: "ADMIN" | "FACULTY" | "STUDENT";
+    role: "ADMIN" | "FACULTY" | "STUDENT";
     isGuest?: boolean;
     stats: {
       topicsStudied: number;
@@ -154,47 +134,6 @@ export const getProfile = () =>
     }[];
   }>("/api/profile");
 
-export const getClassrooms = () =>
-  req<
-    {
-      id: string;
-      name: string;
-      subject: string;
-      section: string;
-      semester: string;
-      description: string;
-      joinCode?: string;
-      ownerId?: string;
-      memberCount?: number;
-      status?: string;
-      createdAt?: string;
-      curriculum?: { modules: unknown[] };
-    }[]
-  >("/api/classrooms");
-
-export const createClassroom = (payload: {
-  name: string;
-  subject: string;
-  section: string;
-  semester: string;
-  description?: string;
-}) =>
-  req<{ id: string; name: string; joinCode: string; memberCount: number }>("/api/classrooms", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-export const deleteClassroom = (classroomId: string) =>
-  req<{ deleted: boolean; id: string }>(`/api/classrooms/${encodeURIComponent(classroomId)}`, {
-    method: "DELETE",
-  });
-
-export const joinClassroom = (joinCode: string) =>
-  req<{ id: string; name: string; joinCode?: string; memberCount: number }>(
-    "/api/classrooms/join",
-    { method: "POST", body: JSON.stringify({ joinCode }) },
-  );
-
 export type PlatformUser = {
   id: string;
   name: string;
@@ -205,23 +144,41 @@ export type PlatformUser = {
 
 export const getPlatformUsers = () => req<PlatformUser[]>("/api/admin/users");
 
-export const updatePlatformUserRole = (
-  userId: string,
-  role: PlatformUser["role"],
-) =>
+export const updatePlatformUserRole = (userId: string, role: PlatformUser["role"]) =>
   req<PlatformUser>(`/api/admin/users/${encodeURIComponent(userId)}/role`, {
     method: "POST",
     body: JSON.stringify({ role }),
   });
 
+export const getClassrooms = () => req<Classroom[]>("/api/classrooms");
+
+export const createClassroom = (payload: ClassroomDraft) =>
+  req<Classroom & { joinCode: string }>("/api/classrooms", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const deleteClassroom = (classroomId: string) =>
+  req<{ deleted: boolean; id: string }>(`/api/classrooms/${encodeURIComponent(classroomId)}`, {
+    method: "DELETE",
+  });
+
+export const joinClassroom = (joinCode: string) =>
+  req<Classroom>("/api/classrooms/join", {
+    method: "POST",
+    body: JSON.stringify({ joinCode }),
+  });
+
+const classroomPath = (classroomId: string) => `/api/classrooms/${encodeURIComponent(classroomId)}`;
+
 export const getClassroomCurriculum = (classroomId: string) =>
-  req<ClassroomCurriculum>(`/api/classrooms/${classroomId}/curriculum`);
+  req<ClassroomCurriculum>(`${classroomPath(classroomId)}/curriculum`);
 
 export const createCurriculumModule = (
   classroomId: string,
   payload: { title: string; description?: string; position?: number },
 ) =>
-  req<CurriculumModule>(`/api/classrooms/${classroomId}/modules`, {
+  req<CurriculumModule>(`${classroomPath(classroomId)}/modules`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -231,89 +188,31 @@ export const createCurriculumTopic = (
   moduleId: string,
   payload: Omit<CurriculumTopic, "id">,
 ) =>
-  req<CurriculumTopic>(
-    `/api/classrooms/${classroomId}/modules/${moduleId}/topics`,
-    { method: "POST", body: JSON.stringify(payload) },
-  );
-
-export const getClassroomAssessments = (classroomId: string) =>
-  req<ClassroomAssessment[]>(`/api/classrooms/${classroomId}/classwork`);
-
-export const createClassroomAssessment = (
-  classroomId: string,
-  payload: Omit<ClassroomAssessment, "id" | "classroomId">,
-) =>
-  req<ClassroomAssessment>(`/api/classrooms/${classroomId}/classwork`, {
+  req<CurriculumTopic>(`${classroomPath(classroomId)}/modules/${encodeURIComponent(moduleId)}/topics`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 
-export const submitClassroomAssessment = (
-  classroomId: string,
-  assessmentId: string,
-  answer: string,
-) =>
-  req<ClassroomSubmission>(
-    `/api/classrooms/${classroomId}/classwork/${assessmentId}/submissions`,
-    { method: "POST", body: JSON.stringify({ answer }) },
-  );
-
-export const getClassroomSubmissions = (
-  classroomId: string,
-  assessmentId: string,
-) =>
-  req<ClassroomSubmission[]>(
-    `/api/classrooms/${classroomId}/classwork/${assessmentId}/submissions`,
-  );
-
-export const gradeClassroomSubmission = (
-  classroomId: string,
-  assessmentId: string,
-  submissionId: string,
-  payload: { score: number; feedback: string; release: boolean },
-) =>
-  req<{ id: string; score: number; released: boolean }>(
-    `/api/classrooms/${classroomId}/classwork/${assessmentId}/submissions/${submissionId}`,
-    { method: "PATCH", body: JSON.stringify(payload) },
-  );
-
-export type AnswerEvaluation = {
-  score: number;
-  conceptScores: Record<string, number>;
-  strengths: string[];
-  misconceptions: string[];
-  feedback: string;
-  recommendedTopics: string[];
-};
-
-export const evaluateClassroomSubmission = (
-  classroomId: string,
-  assessmentId: string,
-  submissionId: string,
-) =>
-  req<AnswerEvaluation>(
-    `/api/classrooms/${classroomId}/classwork/${assessmentId}/submissions/${submissionId}/evaluate`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
+export const publishClassroomCurriculum = (classroomId: string) =>
+  req<{ status: string; version: number }>(`${classroomPath(classroomId)}/curriculum/publish`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
 
 export const getClassroomProgress = (classroomId: string) =>
-  req<ClassroomProgress>(`/api/classrooms/${classroomId}/progress`);
+  req<ClassroomProgress>(`${classroomPath(classroomId)}/progress`);
 
 export const getClassroomAnalytics = (classroomId: string) =>
   req<{
     enrolledStudents: number;
     studentsWithEvidence: number;
     averageMastery: number | null;
-    students: {
-      studentId: string;
-      mastery: { score: number | null; state: string };
-      coverage: { percent: number; coveredTopics: number; totalTopics: number };
-    }[];
+    students: { studentId: string; attention?: boolean; mastery: { score: number | null; state: string }; coverage: { percent: number; coveredTopics: number; totalTopics: number } }[];
     topics: { topicId: string; title: string; averageMastery: number; evidenceCount: number }[];
-  }>(`/api/classrooms/${classroomId}/analytics`);
+  }>(`${classroomPath(classroomId)}/analytics`);
 
 export const getClassroomGraph = (classroomId: string, studentId?: string) =>
-  req<ClassroomKnowledgeGraph>(`/api/classrooms/${classroomId}/graph${studentId ? `?student_id=${encodeURIComponent(studentId)}` : ""}`);
+  req<ClassroomKnowledgeGraph>(`${classroomPath(classroomId)}/graph${studentId ? `?student_id=${encodeURIComponent(studentId)}` : ""}`);
 
 export type ClassroomPost = {
   id: string;
@@ -325,22 +224,84 @@ export type ClassroomPost = {
 };
 
 export const getClassroomStream = (classroomId: string) =>
-  req<ClassroomPost[]>(`/api/classrooms/${classroomId}/stream`);
+  req<ClassroomPost[]>(`${classroomPath(classroomId)}/stream`);
 
 export const createClassroomPost = (
   classroomId: string,
   payload: { kind: "announcement" | "discussion"; title: string; body: string },
 ) =>
-  req<ClassroomPost>(`/api/classrooms/${classroomId}/stream`, {
+  req<ClassroomPost>(`${classroomPath(classroomId)}/stream`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 
 export const replyToClassroomPost = (classroomId: string, postId: string, body: string) =>
-  req<ClassroomPost["replies"][number]>(
-    `/api/classrooms/${classroomId}/stream/${postId}/replies`,
-    { method: "POST", body: JSON.stringify({ body }) },
-  );
+  req<ClassroomPost["replies"][number]>(`${classroomPath(classroomId)}/stream/${encodeURIComponent(postId)}/replies`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+
+export const getClassroomAssessments = (classroomId: string) =>
+  req<ClassroomAssessment[]>(`${classroomPath(classroomId)}/classwork`);
+
+export const createClassroomAssessment = (
+  classroomId: string,
+  payload: Omit<ClassroomAssessment, "id" | "classroomId">,
+) =>
+  req<ClassroomAssessment>(`${classroomPath(classroomId)}/classwork`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const submitClassroomAssessment = (classroomId: string, assessmentId: string, answer: string) =>
+  req<ClassroomSubmission>(`${classroomPath(classroomId)}/classwork/${encodeURIComponent(assessmentId)}/submissions`, {
+    method: "POST",
+    body: JSON.stringify({ answer }),
+  });
+
+export const getClassroomSubmissions = (classroomId: string, assessmentId: string) =>
+  req<ClassroomSubmission[]>(`${classroomPath(classroomId)}/classwork/${encodeURIComponent(assessmentId)}/submissions`);
+
+export const gradeClassroomSubmission = (
+  classroomId: string,
+  assessmentId: string,
+  submissionId: string,
+  payload: { score: number; feedback: string; release: boolean },
+) =>
+  req<{ id: string; score: number; released: boolean }>(`${classroomPath(classroomId)}/classwork/${encodeURIComponent(assessmentId)}/submissions/${encodeURIComponent(submissionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export type AnswerEvaluation = {
+  score: number;
+  conceptScores: Record<string, number>;
+  strengths: string[];
+  misconceptions: string[];
+  feedback: string;
+  recommendedTopics: string[];
+};
+
+export const evaluateClassroomSubmission = (classroomId: string, assessmentId: string, submissionId: string) =>
+  req<AnswerEvaluation>(`${classroomPath(classroomId)}/classwork/${encodeURIComponent(assessmentId)}/submissions/${encodeURIComponent(submissionId)}/evaluate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+
+export const generateClassroomCurriculum = (
+  classroomId: string,
+  payload: { prompt: string; provider?: string; model?: string },
+) =>
+  req<{
+    modules: {
+      title: string;
+      description?: string;
+      topics: Omit<CurriculumTopic, "id">[];
+    }[];
+  }>(`/api/classrooms/${encodeURIComponent(classroomId)}/curriculum/generate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 
 export const learnDocument = (
   file: File,
@@ -353,7 +314,7 @@ export const learnDocument = (
   form.append("model", payload.model);
   form.append("instructions", payload.instructions ?? "");
 
-  return fetch(`${BASE}/api/learn/document`, {
+  return fetch(apiUrl("/api/learn/document"), {
     method: "POST",
     credentials: "include",
     body: form,
@@ -397,7 +358,7 @@ export const learnStream = async (
   onStage: (stage: string) => void,
   classroomContext?: { classroomId: string; curriculumTopicId: string },
 ) => {
-  const response = await fetch(`${BASE}/api/learn/stream`, {
+  const response = await fetch(apiUrl("/api/learn/stream"), {
     method: "POST",
     credentials: "include",
     signal,
@@ -452,5 +413,5 @@ export const refineSession = (id: string, prompt: string) =>
 export const logout = () =>
   req<{ status: string }>("/api/auth/logout", { method: "POST" }).finally(() => {
     csrfToken = "";
-    sessionStorage.removeItem(CSRF_TOKEN_KEY);
+    localStorage.removeItem(CSRF_TOKEN_KEY);
   });

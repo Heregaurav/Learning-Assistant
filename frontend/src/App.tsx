@@ -10,26 +10,22 @@ import ClassroomsPage from "./pages/Classrooms";
 import ClassroomDetail from "./pages/ClassroomDetail";
 import AdminUsers from "./pages/AdminUsers";
 import { Boundary } from "./components/States";
-import { getAuthSession, googleAuth, logout } from "./lib/api";
+import { getProfile, googleAuth, logout } from "./lib/api";
+import type { Role } from "./types";
 
 type User = {
   id: string;
   name: string;
   email: string;
   picture: string;
-  role?: "ADMIN" | "FACULTY" | "STUDENT";
+  role?: Role;
   isGuest?: boolean;
 };
 
 const GUEST_ID_KEY = "curiosity.guest-id";
-const getStoredGuestId = () => {
-  const existing = localStorage.getItem(GUEST_ID_KEY);
-  return existing && /^guest_[0-9a-f-]{36}$/.test(existing) ? existing : null;
-};
 const getGuestId = () => {
-  const existing = getStoredGuestId();
+  const existing = localStorage.getItem(GUEST_ID_KEY);
   if (existing) return existing;
-  localStorage.removeItem(GUEST_ID_KEY);
   const id = `guest_${crypto.randomUUID()}`;
   localStorage.setItem(GUEST_ID_KEY, id);
   return id;
@@ -111,44 +107,34 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
   const [showSignIn, setShowSignIn] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [plainBackground, setPlainBackground] = useState(false);
   const [videoPaused, setVideoPaused] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pictureFailed, setPictureFailed] = useState(false);
   const backgroundVideoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     setPictureFailed(false);
   }, [user?.picture]);
   useEffect(() => {
-    getAuthSession()
-      .then(({ authenticated, user: sessionUser }) => {
-        if (authenticated && sessionUser) {
-          setUser({ ...sessionUser, isGuest: false });
-          return;
-        }
-        const guestId = getStoredGuestId();
-        setUser(
-          guestId
-            ? {
-                id: guestId,
-                name: "Guest",
-                email: "",
-                picture: "",
-                role: "STUDENT",
-                isGuest: true,
-              }
-            : null,
-        );
-      })
+    getProfile()
+      .then((profile) =>
+        setUser({
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          picture: profile.picture,
+          role: profile.role,
+          isGuest: false,
+        }),
+      )
       .catch(() => {
-        const guestId = getStoredGuestId();
+        const guestId = localStorage.getItem(GUEST_ID_KEY);
         if (guestId) {
           setUser({
             id: guestId,
             name: "Guest",
             email: "",
             picture: "",
-            role: "STUDENT",
             isGuest: true,
           });
         } else {
@@ -228,21 +214,34 @@ export default function App() {
               type="button"
               className="mobile-menu-toggle"
               onClick={() => setMobileMenuOpen((open) => !open)}
+              aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
               aria-expanded={mobileMenuOpen}
-              aria-controls="mobile-navigation"
-              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+              aria-controls="main-mobile-menu"
             >
-              {mobileMenuOpen ? <X size={21} /> : <Menu size={21} />}
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
-            <div id="mobile-navigation" className={`mobile-menu${mobileMenuOpen ? " is-open" : ""}`}>
+            <div
+              id="main-mobile-menu"
+              className={`mobile-menu${mobileMenuOpen ? " is-open" : ""}`}
+            >
               <nav aria-label="Main">
                 <NavLink to="/" end onClick={() => setMobileMenuOpen(false)}>
                   Learn
                 </NavLink>
-                <NavLink to="/classrooms" onClick={() => setMobileMenuOpen(false)}>Classrooms</NavLink>
-                {user.role === "ADMIN" && <NavLink to="/admin/users" onClick={() => setMobileMenuOpen(false)}>Admin</NavLink>}
-                <NavLink to="/history" onClick={() => setMobileMenuOpen(false)}>History</NavLink>
-                <NavLink to="/profile" onClick={() => setMobileMenuOpen(false)}>Profile</NavLink>
+                <NavLink to="/classrooms" onClick={() => setMobileMenuOpen(false)}>
+                  Classrooms
+                </NavLink>
+                {user.role === "ADMIN" && (
+                  <NavLink to="/admin/users" onClick={() => setMobileMenuOpen(false)}>
+                    Admin
+                  </NavLink>
+                )}
+                <NavLink to="/history" onClick={() => setMobileMenuOpen(false)}>
+                  History
+                </NavLink>
+                <NavLink to="/profile" onClick={() => setMobileMenuOpen(false)}>
+                  Profile
+                </NavLink>
               </nav>
               <div className="nav-actions">
               <div
@@ -287,14 +286,11 @@ export default function App() {
                   </span>
                 </button>
               </div>
-                <button
-                  className="profile-button"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    signOut();
-                  }}
-                  title={user.isGuest ? "Leave guest mode" : `Signed in as ${user.email}`}
-                >
+              <button
+                className="profile-button"
+                onClick={signOut}
+                title={user.isGuest ? "Leave guest mode" : `Signed in as ${user.email}`}
+              >
                 {user.picture && !pictureFailed ? (
                   <img
                     src={user.picture}
@@ -307,7 +303,7 @@ export default function App() {
                 )}
                 <span>{user.isGuest ? "Guest mode" : user.name}</span>
                 <small>{user.isGuest ? "Login for more" : "Sign out"}</small>
-                </button>
+              </button>
               </div>
             </div>
           </header>

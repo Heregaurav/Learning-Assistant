@@ -7,12 +7,14 @@ import {
   deleteClassroom,
   getClassroomCurriculum,
   getClassroomProgress,
+  generateClassroomCurriculum,
+  publishClassroomCurriculum,
 } from "../lib/api";
 import ClassworkPanel from "./ClassworkPanel";
 import ClassroomInsights from "./ClassroomInsights";
 import ClassroomStream from "./ClassroomStream";
 import Learn from "./Learn";
-import type { ClassroomCurriculum, ClassroomProgress, Role } from "../types";
+import type { ClassroomCurriculum, ClassroomProgress, CurriculumTopic, Role } from "../types";
 
 type Props = {
   user: { id: string; role?: Role } | null;
@@ -36,6 +38,10 @@ export default function ClassroomDetail({ user }: Props) {
   const [activeTab, setActiveTab] = useState("learn");
   const [progress, setProgress] = useState<ClassroomProgress | null>(null);
   const [selectedTopicId, setSelectedTopicId] = useState("");
+  const [publishing, setPublishing] = useState(false);
+  const [curriculumPrompt, setCurriculumPrompt] = useState("");
+  const [draft, setDraft] = useState<{ modules: { title: string; description?: string; topics: Omit<CurriculumTopic, "id">[] }[] } | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   const canEdit = Boolean(
     user &&
@@ -165,6 +171,49 @@ export default function ClassroomDetail({ user }: Props) {
     }
   };
 
+  const publishCurriculum = async () => {
+    setPublishing(true);
+    setError("");
+    try {
+      await publishClassroomCurriculum(classroomId);
+      setNotice("Curriculum published. Students can now begin their learning paths.");
+      await refresh();
+    } catch (reason) {
+      setError((reason as Error).message || "Unable to publish curriculum.");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const generateDraft = async () => {
+    setGenerating(true);
+    setError("");
+    try {
+      setDraft(await generateClassroomCurriculum(classroomId, { prompt: curriculumPrompt }));
+    } catch (reason) {
+      setError((reason as Error).message || "Unable to generate curriculum draft.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const addDraftToCurriculum = async () => {
+    if (!draft) return;
+    try {
+      for (const [moduleIndex, draftModule] of draft.modules.entries()) {
+        const module = await createCurriculumModule(classroomId, { title: draftModule.title, description: draftModule.description ?? "", position: (data?.modules.length ?? 0) + moduleIndex });
+        for (const topic of draftModule.topics) {
+          await createCurriculumTopic(classroomId, module.id, { ...topic, description: topic.description ?? "", learningObjectives: topic.learningObjectives ?? [], prerequisites: topic.prerequisites ?? [], concepts: topic.concepts ?? [], materials: topic.materials ?? [] });
+        }
+      }
+      setDraft(null);
+      setNotice("AI draft added as editable curriculum content. Review it before publishing.");
+      await refresh();
+    } catch (reason) {
+      setError((reason as Error).message || "Unable to add curriculum draft.");
+    }
+  };
+
   if (loading) return <div className="state"><p>Loading classroom…</p></div>;
   if (error && !data) return <div className="state"><p>{error}</p><Link to="/classrooms">Back to classrooms</Link></div>;
   if (!data) return null;
@@ -217,7 +266,21 @@ export default function ClassroomDetail({ user }: Props) {
       )}
 
       {activeTab === "curriculum" && canEdit && (
-        <form onSubmit={submitModule} className="mt-6 grid gap-3 border-b border-primary/20 pb-6 md:grid-cols-[1fr_2fr_auto] md:items-end">
+        <>
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-b border-primary/20 pb-4">
+          <p className="text-sm text-primary/75">Status: <strong>{data.status ?? "draft"}</strong> · version {data.version ?? 0}</p>
+          <button type="button" onClick={() => void publishCurriculum()} disabled={publishing || data.modules.length === 0 || !data.modules.some((module) => module.topics.length > 0)} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-black disabled:cursor-not-allowed disabled:opacity-40">
+            {publishing ? "Publishing…" : "Publish curriculum"}
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 border-b border-primary/20 pb-4">
+          <label className="grid gap-1 text-xs text-primary/75">Generate curriculum draft with AI
+            <textarea value={curriculumPrompt} onChange={(event) => setCurriculumPrompt(event.target.value)} placeholder="Paste syllabus, course goals, or curriculum notes" className="min-h-24 rounded-lg border border-primary/25 bg-black/40 px-3 py-2 text-sm" />
+          </label>
+          <button type="button" onClick={() => void generateDraft()} disabled={generating || curriculumPrompt.trim().length < 10} className="w-fit rounded-lg border border-primary/40 px-4 py-2 text-sm text-primary disabled:opacity-40">{generating ? "Generating draft…" : "Generate draft"}</button>
+          {draft && <div className="border-l-2 border-primary/40 pl-4 text-sm"><p className="font-medium">Draft preview: {draft.modules.length} modules</p><ul className="mt-2 grid gap-1 text-primary/75">{draft.modules.map((module) => <li key={module.title}>{module.title} · {module.topics.length} topics</li>)}</ul><button type="button" onClick={() => void addDraftToCurriculum()} className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-black">Add draft for review</button></div>}
+        </div>
+        <form onSubmit={submitModule} className="mt-4 grid gap-3 border-b border-primary/20 pb-6 md:grid-cols-[1fr_2fr_auto] md:items-end">
           <label className="grid gap-1 text-xs text-primary/80">New module
             <input required value={moduleTitle} onChange={(event) => setModuleTitle(event.target.value)} placeholder="e.g. Relational Design" className="rounded-lg border border-primary/25 bg-black/40 px-3 py-2 text-sm text-[#E1E0CC]" />
           </label>
@@ -226,6 +289,7 @@ export default function ClassroomDetail({ user }: Props) {
           </label>
           <button className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-black"><Plus size={16} /> Add module</button>
         </form>
+        </>
       )}
 
       {activeTab === "learn" && progress && (

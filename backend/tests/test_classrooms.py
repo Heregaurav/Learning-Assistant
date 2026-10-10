@@ -60,6 +60,15 @@ class InMemoryCollection:
             return types.SimpleNamespace(matched_count=0, modified_count=1)
         return types.SimpleNamespace(matched_count=0, modified_count=0)
 
+    def update_many(self, query, update):
+        matched = 0
+        for doc in self.docs:
+            if all(doc.get(k) == v for k, v in query.items()):
+                matched += 1
+                if "$set" in update:
+                    doc.update(update["$set"])
+        return types.SimpleNamespace(matched_count=matched, modified_count=matched)
+
     def count_documents(self, query=None):
         query = query or {}
         return sum(1 for doc in self.docs if all(doc.get(k) == v for k, v in query.items()))
@@ -134,6 +143,51 @@ def test_faculty_can_create_classroom_and_student_can_join():
 
     visible = main.list_classrooms(student_user)
     assert any(item["name"] == "DBMS" for item in visible)
+
+
+def test_curriculum_generation_is_owner_scoped_and_returns_ai_draft(monkeypatch):
+    reset_db()
+    owner = _user("faculty-1")
+    main.db.classrooms.insert_one({"_id": "class-1", "ownerId": owner["id"]})
+    monkeypatch.setattr(
+        main,
+        "generate_curriculum",
+        lambda prompt, provider, model: {"modules": [{"title": prompt}]},
+    )
+
+    result = main.generate_classroom_curriculum_route(
+        "class-1",
+        main.CurriculumGenerateIn(prompt="A syllabus about operating systems"),
+        owner,
+    )
+
+    assert result == {"modules": [{"title": "A syllabus about operating systems"}]}
+    with pytest.raises(main.HTTPException) as denied:
+        main.generate_classroom_curriculum_route(
+            "class-1",
+            main.CurriculumGenerateIn(prompt="A syllabus about operating systems"),
+            _user("student-1"),
+        )
+    assert denied.value.status_code == 403
+
+
+def test_curriculum_stays_draft_until_owner_publishes_and_initializes_student_path():
+    reset_db()
+    faculty = _user("faculty-1")
+    student = _user("student-1")
+    classroom = main.create_classroom(
+        {"name": "Operating Systems", "subject": "OS", "section": "A", "semester": "Fall", "description": ""}, faculty
+    )
+    module = main.create_curriculum_module(classroom["id"], main.CurriculumModuleIn(title="Processes"), faculty)
+    topic = main.create_curriculum_topic(classroom["id"], module["id"], main.CurriculumTopicIn(title="Process states"), faculty)
+    main.join_classroom({"joinCode": classroom["joinCode"]}, student)
+    assert main.get_classroom_curriculum(classroom["id"], student)["modules"] == []
+    main.publish_classroom_curriculum(classroom["id"], faculty)
+    visible = main.get_classroom_curriculum(classroom["id"], student)
+    assert visible["status"] == "published"
+    assert visible["modules"][0]["topics"][0]["id"] == topic["id"]
+    path = main.db.learning_paths.find_one({"classroomId": classroom["id"], "userId": student["id"]})
+    assert path["path"]["items"][0]["topicId"] == topic["id"]
 
 
 def test_only_classroom_owner_can_delete_and_related_data_is_removed():
@@ -323,6 +377,7 @@ def test_curriculum_is_classroom_scoped_and_student_can_read():
         faculty,
     )
 
+    main.publish_classroom_curriculum(first_class["id"], faculty)
     student = _user("student-1")
     main.join_classroom({"joinCode": first_class["joinCode"]}, student)
     first_curriculum = main.get_classroom_curriculum(first_class["id"], student)
@@ -382,6 +437,7 @@ def test_classroom_topic_learning_reuses_curiosity_stream_and_persists_context(m
         ),
         faculty,
     )
+    main.publish_classroom_curriculum(classroom["id"], faculty)
     student = _user("student-1")
     main.join_classroom({"joinCode": classroom["joinCode"]}, student)
     generated_prompts = []
@@ -424,6 +480,39 @@ def test_classroom_topic_learning_reuses_curiosity_stream_and_persists_context(m
     assert saved["curriculumTopicId"] == topic["id"]
     assert saved["curriculumModuleId"] == module["id"]
     assert saved["concepts"] == ["3NF"]
+
+
+def test_completed_classroom_quiz_records_learning_evidence():
+    reset_db()
+    student = _user("student-1")
+    main.db.sessions.insert_one(
+        {
+            "_id": "session-classroom-quiz",
+            "userId": student["id"],
+            "topicId": "topic-personal",
+            "classroomId": "class-1",
+            "curriculumTopicId": "curriculum-topic-1",
+            "curriculumModuleId": "module-1",
+            "concepts": ["3NF"],
+            "evaluation.completed": True,
+            "evaluation": {"completed": True, "score": 80},
+        }
+    )
+
+    result = main.complete(
+        "session-classroom-quiz",
+        main.CompleteIn(correct=4, incorrect=1, total=5),
+        student,
+    )
+
+    event = main.db.learning_events.find_one(
+        {"_id": "learning_event_session_session-classroom-quiz"}
+    )
+    assert result["evaluation"]["score"] == 80
+    assert event["classroomId"] == "class-1"
+    assert event["topicId"] == "curriculum-topic-1"
+    assert event["activityType"] == "curiosity_quiz"
+    assert event["masteryScore"] == 80
 
 
 def test_classwork_submission_privacy_and_faculty_grade_release():
@@ -501,6 +590,7 @@ def test_student_progress_graph_and_faculty_analytics_are_scoped_to_classroom():
         ),
         faculty,
     )
+    main.publish_classroom_curriculum(classroom["id"], faculty)
     student = _user("student-1")
     main.join_classroom({"joinCode": classroom["joinCode"]}, student)
     for event_id, score, activity in (("quiz-1", 80, "quiz"), ("assignment-1", 100, "assignment")):

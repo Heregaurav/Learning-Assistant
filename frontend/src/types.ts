@@ -118,6 +118,8 @@ export type CurriculumModule = {
 export type ClassroomCurriculum = {
   classroom: Classroom;
   modules: CurriculumModule[];
+  status?: "draft" | "published";
+  version?: number;
 };
 
 export type AdaptivePathItem = {

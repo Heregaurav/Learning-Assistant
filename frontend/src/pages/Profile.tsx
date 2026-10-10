@@ -17,6 +17,7 @@ type ProfileData = {
   };
   strong: { id: string; name: string; retestsUsed: number; progress: { score: number } }[];
   needsReview: { id: string; name: string; retestsUsed: number; progress: { score: number } }[];
+  classroomPaths?: { classroomId: string; classroomName: string; recommendation: { title: string; reason: string; nextAction: string } | null; progress: { percent: number } }[];
 };
 
 export default function Profile() {
@@ -39,6 +40,7 @@ export default function Profile() {
     },
     strong: [],
     needsReview: [],
+    classroomPaths: [],
   };
   const load = () => {
     setError("");
@@ -180,6 +182,12 @@ export default function Profile() {
           )}
         </section>
       </div>
+      {profile.classroomPaths && profile.classroomPaths.length > 0 && (
+        <section className="profile-topic-panel mt-6">
+          <div className="profile-topic-heading"><div><p className="eyebrow">CLASSROOM PATHS</p><h2>Current recommendations</h2></div><span className="topic-count">{profile.classroomPaths.length}</span></div>
+          {profile.classroomPaths.map((path) => <div className="row profile-topic-row" key={path.classroomId}><span className="topic-name">{path.classroomName}<small className="block">{path.progress.percent}% path progress</small></span><span className="profile-topic-actions text-right text-xs">{path.recommendation ? <><strong>{path.recommendation.nextAction}</strong><small className="block">{path.recommendation.title}</small></> : "Complete"}</span></div>)}
+        </section>
+      )}
     </>
   );
 }
