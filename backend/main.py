@@ -57,13 +57,17 @@ logger = logging.getLogger("uvicorn.error")
 SESSION_COOKIE = "curiosity_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1209600"))
 SESSION_COOKIE_SECURE = os.getenv("APP_ENV", "development").lower() != "development"
+SESSION_COOKIE_SAMESITE = os.getenv(
+    "SESSION_COOKIE_SAMESITE",
+    "none" if SESSION_COOKIE_SECURE else "lax",
+).lower()
 
 
 def session_cookie_settings():
     return {
         "httponly": True,
         "secure": SESSION_COOKIE_SECURE,
-        "samesite": "lax",
+        "samesite": SESSION_COOKIE_SAMESITE,
         "path": "/",
     }
 
@@ -1790,6 +1794,7 @@ def graph(user: dict = Depends(current_user)):
 app = CORSMiddleware(
     app=app,
     allow_origins=FRONTEND_ORIGINS,
+    allow_origin_regex=os.getenv("FRONTEND_ORIGIN_REGEX") or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
