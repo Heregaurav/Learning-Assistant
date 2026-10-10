@@ -105,6 +105,21 @@ export const googleAuth = (credential: string) =>
     setCsrfToken(result.csrfToken);
     return result;
   });
+export const getAuthSession = () =>
+  req<{
+    authenticated: boolean;
+    csrfToken?: string;
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      picture: string;
+      role: "ADMIN" | "FACULTY" | "STUDENT";
+    } | null;
+  }>("/api/auth/session").then((result) => {
+    if (result.csrfToken) setCsrfToken(result.csrfToken);
+    return result;
+  });
 export const getProfile = () =>
   req<{
     id: string;
@@ -207,7 +222,7 @@ export const getClassroomAnalytics = (classroomId: string) =>
     enrolledStudents: number;
     studentsWithEvidence: number;
     averageMastery: number | null;
-    students: { studentId: string; attention?: boolean; mastery: { score: number | null; state: string }; coverage: { percent: number; coveredTopics: number; totalTopics: number } }[];
+    students: { studentId: string; name: string; attention?: boolean; mastery: { score: number | null; state: string }; coverage: { percent: number; coveredTopics: number; totalTopics: number } }[];
     topics: { topicId: string; title: string; averageMastery: number; evidenceCount: number }[];
   }>(`${classroomPath(classroomId)}/analytics`);
 

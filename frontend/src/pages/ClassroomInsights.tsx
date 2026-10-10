@@ -89,7 +89,7 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
                 <div className="mt-2 divide-y divide-primary/15 border-y border-primary/15">
                   {analytics.students.map((student) => (
                     <button key={student.studentId} onClick={() => setGraphStudentId(student.studentId)} className={`grid w-full grid-cols-[1fr_auto] gap-2 py-3 text-left hover:bg-white/5 ${graphStudentId === student.studentId ? "text-primary" : ""}`}>
-                      <span className="truncate text-sm">{student.studentId}</span>
+                      <span className="truncate text-sm">{student.name}</span>
                       <span className="text-xs">{student.mastery.score === null ? "No evidence" : `${student.mastery.score}% ${student.mastery.state}`} · {student.coverage.percent}% coverage{student.attention ? " · Needs attention" : ""}</span>
                     </button>
                   ))}
@@ -120,7 +120,7 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
       <div className="mt-8 border-t border-primary/15 pt-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><p className="text-xs uppercase tracking-[0.15em] text-primary/65">Curriculum relationships and evidence</p><h3 className="mt-1 text-lg font-medium">Knowledge graph</h3></div>
-          {canEdit && analytics && <label className="flex items-center gap-2 text-xs text-primary/75">Student<select value={graphStudentId} onChange={(event) => setGraphStudentId(event.target.value)} className="max-w-[220px] rounded-md border border-primary/25 bg-black/40 px-2 py-2 text-sm text-[#E1E0CC]">{analytics.students.map((student) => <option key={student.studentId} value={student.studentId}>{student.studentId}</option>)}</select></label>}
+          {canEdit && analytics && <label className="flex items-center gap-2 text-xs text-primary/75">Student<select value={graphStudentId} onChange={(event) => setGraphStudentId(event.target.value)} className="max-w-[220px] rounded-md border border-primary/25 bg-black/40 px-2 py-2 text-sm text-[#E1E0CC]">{analytics.students.map((student) => <option key={student.studentId} value={student.studentId}>{student.name}</option>)}</select></label>}
         </div>
         {!graph || graph.nodes.length === 0 ? <p className="py-5 text-sm text-primary/70">Add curriculum topics and concepts to build this graph.</p> : (
           <>
@@ -128,7 +128,7 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
             <ClassroomKnowledgeGraph graph={graph} selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} />
           </Suspense>
           <div className="mt-3 grid gap-4 md:grid-cols-[1fr_280px]">
-            <ul className="grid gap-2 sm:grid-cols-2">
+            <ul className="hidden gap-2 md:grid md:grid-cols-2">
               {graph.nodes.map((node) => <li key={node.id}><button onClick={() => setSelectedNodeId(node.id)} className={`w-full border-l-2 px-3 py-3 text-left ${selectedNodeId === node.id ? "border-primary bg-primary/10" : "border-primary/25 bg-black/20"}`}><span className="block text-[10px] uppercase tracking-wide text-primary/65">{node.kind} · {node.coverage}</span><span className="mt-1 block text-sm">{node.label}</span><span className="mt-1 block text-xs text-primary/75">{node.mastery.score === null ? "No assessment evidence" : `${node.mastery.score}% · ${node.mastery.state} · ${node.mastery.confidence} confidence`}</span></button></li>)}
             </ul>
             <aside className="border-t border-primary/20 pt-3 md:border-l md:border-t-0 md:pl-4">

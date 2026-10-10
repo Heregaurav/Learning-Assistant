@@ -338,6 +338,16 @@ def test_auth_status_returns_unauthenticated_without_http_error():
     assert result == {"authenticated": False, "user": None}
 
 
+def test_session_cookie_is_cross_site_compatible_when_secure(monkeypatch):
+    monkeypatch.setattr(main, "SESSION_COOKIE_SECURE", True)
+    monkeypatch.setattr(main, "SESSION_COOKIE_SAMESITE", "none")
+
+    settings = main.session_cookie_settings()
+
+    assert settings["secure"] is True
+    assert settings["samesite"] == "none"
+
+
 def test_naive_mongodb_session_expiry_is_treated_as_utc():
     reset_db()
     expired_at = main.now().replace(tzinfo=None)
@@ -618,6 +628,7 @@ def test_student_progress_graph_and_faculty_analytics_are_scoped_to_classroom():
     assert progress["modules"][0]["topics"][0]["mastery"]["evidenceCount"] == 2
     assert {node["label"] for node in graph["nodes"]} == {"Normalization", "3NF"}
     assert analytics["enrolledStudents"] == 1
+    assert analytics["students"][0]["name"] == "Student User"
     assert analytics["averageMastery"] == progress["mastery"]["score"]
 
     with pytest.raises(main.HTTPException) as private_graph:

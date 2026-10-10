@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 import { Menu, Pause, Play, Sun, X } from "lucide-react";
 import Learn from "./pages/Learn";
@@ -10,7 +10,7 @@ import ClassroomsPage from "./pages/Classrooms";
 import ClassroomDetail from "./pages/ClassroomDetail";
 import AdminUsers from "./pages/AdminUsers";
 import { Boundary } from "./components/States";
-import { getProfile, googleAuth, logout } from "./lib/api";
+import { getAuthSession, googleAuth, logout } from "./lib/api";
 import type { Role } from "./types";
 
 type User = {
@@ -116,18 +116,12 @@ export default function App() {
     setPictureFailed(false);
   }, [user?.picture]);
   useEffect(() => {
-    getProfile()
-      .then((profile) =>
-        setUser({
-          id: profile.id,
-          name: profile.name,
-          email: profile.email,
-          picture: profile.picture,
-          role: profile.role,
-          isGuest: false,
-        }),
-      )
-      .catch(() => {
+    getAuthSession()
+      .then((session) => {
+        if (session.authenticated && session.user) {
+          setUser({ ...session.user, isGuest: false });
+          return;
+        }
         const guestId = localStorage.getItem(GUEST_ID_KEY);
         if (guestId) {
           setUser({
@@ -141,12 +135,16 @@ export default function App() {
           setUser(null);
         }
       })
+      .catch(() => {
+        const guestId = localStorage.getItem(GUEST_ID_KEY);
+        setUser(guestId ? { id: guestId, name: "Guest", email: "", picture: "", isGuest: true } : null);
+      })
       .finally(() => setChecking(false));
   }, []);
-  const signIn = (next: User) => {
+  const signIn = useCallback((next: User) => {
     localStorage.removeItem(GUEST_ID_KEY);
     setUser(next);
-  };
+  }, []);
   const useGuest = () => {
     setUser({
       id: getGuestId(),

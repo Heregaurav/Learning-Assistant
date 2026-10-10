@@ -11,28 +11,126 @@ type Props = {
 };
 
 export default function ClassroomKnowledgeGraph({ graph, selectedNodeId, onSelect }: Props) {
-  const [webglAvailable] = useState(() => {
-    try {
-      const canvas = document.createElement("canvas");
-      return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"));
-    } catch {
-      return false;
-    }
-  });
+  const [isDesktop, setIsDesktop] = useState(() =>
+    window.matchMedia("(min-width: 768px)").matches,
+  );
+  const [webglAvailable, setWebglAvailable] = useState(
+    () => window.matchMedia("(min-width: 768px)").matches && supportsWebGL(),
+  );
 
-  if (!webglAvailable) {
-    return <p className="py-3 text-sm text-primary/70">3D rendering is unavailable in this browser. The curriculum graph is available in the list below.</p>;
-  }
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 768px)");
+    const updateViewport = () => {
+      setIsDesktop(media.matches);
+      setWebglAvailable(media.matches && supportsWebGL());
+    };
+    media.addEventListener("change", updateViewport);
+    return () => media.removeEventListener("change", updateViewport);
+  }, []);
 
   return (
-    <div className="hidden h-[440px] overflow-hidden rounded-lg border border-primary/20 bg-[#101416] md:block" aria-label="Interactive 3D classroom knowledge graph">
-      <Canvas camera={{ position: [0, 4.5, 8], fov: 45 }} dpr={[1, 1.5]} fallback={<p className="p-4 text-sm">3D is unavailable. Use the graph list below.</p>}>
-        <ambientLight intensity={1.1} />
-        <pointLight position={[4, 6, 5]} intensity={30} />
-        <OrbitControlsScene />
-        <GraphScene graph={graph} selectedNodeId={selectedNodeId} onSelect={onSelect} />
-      </Canvas>
+    <>
+      <MobileGraph graph={graph} selectedNodeId={selectedNodeId} onSelect={onSelect} />
+      {isDesktop && webglAvailable ? (
+        <div className="hidden h-[440px] overflow-hidden rounded-lg border border-primary/20 bg-[#101416] md:block" aria-label="Interactive 3D classroom knowledge graph">
+          <Canvas camera={{ position: [0, 4.5, 8], fov: 45 }} dpr={[1, 1.5]} fallback={<p className="p-4 text-sm">3D is unavailable. Use the graph list below.</p>}>
+            <ambientLight intensity={1.1} />
+            <pointLight position={[4, 6, 5]} intensity={30} />
+            <OrbitControlsScene />
+            <GraphScene graph={graph} selectedNodeId={selectedNodeId} onSelect={onSelect} />
+          </Canvas>
+        </div>
+      ) : isDesktop ? (
+        <p className="hidden py-3 text-sm text-primary/70 md:block">
+          3D rendering is unavailable in this browser. The interactive curriculum graph is shown on smaller screens.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function supportsWebGL() {
+  try {
+    const canvas = document.createElement("canvas");
+    return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
+
+function MobileGraph({ graph, selectedNodeId, onSelect }: Props) {
+  const topics = graph.nodes.filter((node) => node.kind === "topic");
+  const conceptsByTopic = new Map<string, KnowledgeGraphNode[]>();
+  for (const edge of graph.edges) {
+    if (edge.kind !== "contains") continue;
+    const concept = graph.nodes.find((node) => node.id === edge.target);
+    if (!concept) continue;
+    const concepts = conceptsByTopic.get(edge.source) ?? [];
+    concepts.push(concept);
+    conceptsByTopic.set(edge.source, concepts);
+  }
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const prerequisites = graph.edges.filter((edge) => edge.kind === "prerequisite");
+
+  return (
+    <div className="grid gap-3 md:hidden" aria-label="Interactive curriculum graph">
+      {topics.map((topic) => (
+        <section key={topic.id} className="rounded-lg border border-primary/20 bg-black/20 p-3">
+          <GraphNodeButton node={topic} selected={selectedNodeId === topic.id} onSelect={onSelect} />
+          {(conceptsByTopic.get(topic.id) ?? []).length > 0 && (
+            <div className="ml-3 mt-3 grid gap-2 border-l border-primary/35 pl-3">
+              {(conceptsByTopic.get(topic.id) ?? []).map((concept) => (
+                <GraphNodeButton
+                  key={concept.id}
+                  node={concept}
+                  selected={selectedNodeId === concept.id}
+                  onSelect={onSelect}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ))}
+      {prerequisites.length > 0 && (
+        <section className="border-t border-primary/20 pt-3">
+          <h4 className="text-xs font-medium uppercase tracking-wide text-primary/70">Prerequisite links</h4>
+          <ul className="mt-2 grid gap-2">
+            {prerequisites.map((edge) => (
+              <li key={`${edge.source}-${edge.target}`} className="flex flex-wrap items-center gap-2 text-xs text-primary/80">
+                <span>{nodeById.get(edge.source)?.label ?? "Concept"}</span>
+                <span aria-hidden="true" className="text-primary">→</span>
+                <span>{nodeById.get(edge.target)?.label ?? "Concept"}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
+  );
+}
+
+function GraphNodeButton({
+  node,
+  selected,
+  onSelect,
+}: {
+  node: KnowledgeGraphNode;
+  selected: boolean;
+  onSelect: (nodeId: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={() => onSelect(node.id)}
+      className={`w-full rounded-md border px-3 py-2 text-left ${selected ? "border-primary bg-primary/10" : "border-primary/15 bg-black/20"}`}
+    >
+      <span className="block text-[10px] uppercase tracking-wide text-primary/65">{node.kind} · {node.coverage}</span>
+      <span className="mt-1 block break-words text-sm font-medium">{node.label}</span>
+      <span className="mt-1 block text-xs text-primary/75">
+        {node.mastery.score === null ? "No assessment evidence" : `${node.mastery.score}% mastery · ${node.mastery.state}`}
+      </span>
+    </button>
   );
 }
 

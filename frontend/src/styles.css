@@ -2728,3 +2728,87 @@ blockquote {
     font-size: 10px;
   }
 }
+
+@media (max-width: 760px) {
+  .prisma-auth-shell .top {
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    left: 8px;
+    right: 8px;
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: auto;
+    max-width: none;
+    margin: 0;
+  }
+
+  .prisma-auth-shell .top .mobile-menu-toggle {
+    display: grid !important;
+    flex: 0 0 40px;
+    margin-left: auto;
+  }
+
+  .prisma-auth-shell .top .mobile-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(260px, calc(100vw - 32px));
+    padding: 12px;
+    border: 1px solid rgba(225, 224, 204, 0.16);
+    border-radius: 16px;
+    background: rgba(8, 10, 12, 0.96);
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(18px);
+    z-index: 6;
+  }
+
+  .prisma-auth-shell .top .mobile-menu.is-open {
+    display: grid;
+    gap: 12px;
+  }
+
+  .prisma-auth-shell .top .mobile-menu nav {
+    display: grid !important;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .prisma-auth-shell .top .mobile-menu nav a {
+    display: block;
+    width: 100%;
+    padding: 11px 10px;
+    border-radius: 8px;
+    text-align: left;
+  }
+
+  .prisma-auth-shell .top .mobile-menu .nav-actions,
+  .prisma-auth-shell .top .mobile-menu .background-controls {
+    display: grid;
+    width: 100%;
+    justify-items: stretch;
+    gap: 8px;
+  }
+
+  .prisma-auth-shell .top .mobile-menu .nav-actions {
+    padding-top: 10px;
+    border-top: 1px solid rgba(225, 224, 204, 0.12);
+  }
+
+  .prisma-auth-shell .top .mobile-menu .background-control,
+  .prisma-auth-shell .top .mobile-menu .profile-button {
+    width: 100%;
+    min-height: 38px;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .prisma-auth-shell .top .mobile-menu .background-control-label,
+  .prisma-auth-shell .top .mobile-menu .profile-button > span:not(.profile-button-fallback),
+  .prisma-auth-shell .top .mobile-menu .profile-button small {
+    display: inline;
+  }
+}

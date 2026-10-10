@@ -57,14 +57,18 @@ app = FastAPI(title="AI Learning Assistant")
 logger = logging.getLogger("uvicorn.error")
 SESSION_COOKIE = "curiosity_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1209600"))
-SESSION_COOKIE_SECURE = os.getenv("APP_ENV", "development").lower() != "development"
+SESSION_COOKIE_SECURE = (
+    os.getenv("APP_ENV", "development").lower() != "development"
+    or any(origin.startswith("https://") for origin in FRONTEND_ORIGINS)
+)
+SESSION_COOKIE_SAMESITE = "none" if SESSION_COOKIE_SECURE else "lax"
 
 
 def session_cookie_settings():
     return {
         "httponly": True,
         "secure": SESSION_COOKIE_SECURE,
-        "samesite": "lax",
+        "samesite": SESSION_COOKIE_SAMESITE,
         "path": "/",
     }
 
@@ -380,7 +384,11 @@ def classroom_analytics(classroom_id: str, user: dict):
     classroom = require_classroom_editor(classroom_id, user)
     curriculum = get_classroom_curriculum(classroom_id, user)
     students = list(dict.fromkeys(m["userId"] for m in classroom.get("members", []) if m.get("role") == "STUDENT" and m.get("userId")))
-    return build_classroom_analytics(curriculum["modules"], students, list(db.learning_events.find({"classroomId": classroom_id})))
+    analytics = build_classroom_analytics(curriculum["modules"], students, list(db.learning_events.find({"classroomId": classroom_id})))
+    for student in analytics["students"]:
+        record = db.users.find_one({"_id": student["studentId"]}) or {}
+        student["name"] = record.get("name") or "Student"
+    return analytics
 
 
 def classroom_knowledge_graph(classroom_id: str, user: dict, student_id: str | None = None):
@@ -705,7 +713,12 @@ def logout(request: Request, response: Response):
     session_id = request.cookies.get(SESSION_COOKIE)
     if session_id:
         db.sessions.delete_one({"_id": session_id})
-    response.delete_cookie(key=SESSION_COOKIE, path="/", samesite="lax")
+    response.delete_cookie(
+        key=SESSION_COOKIE,
+        path="/",
+        secure=SESSION_COOKIE_SECURE,
+        samesite=SESSION_COOKIE_SAMESITE,
+    )
     return {"status": "ok"}
 
 
