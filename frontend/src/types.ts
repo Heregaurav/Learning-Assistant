@@ -204,6 +204,11 @@ export type KnowledgeGraphNode = {
   curriculumId: string;
   label: string;
   kind: "topic" | "concept";
+  moduleId: string;
+  moduleName: string;
+  started: boolean;
+  completed: boolean;
+  mastered: boolean;
   mastery: {
     score: number | null;
     state: string;

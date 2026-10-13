@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { getClassroomAnalytics, getClassroomGraph, getClassroomProgress } from "../lib/api";
+import { CLASSROOM_PROGRESS_UPDATED, getClassroomAnalytics, getClassroomGraph, getClassroomProgress } from "../lib/api";
 import type { Role } from "../types";
 
 const ClassroomKnowledgeGraph = lazy(() => import("../components/ClassroomKnowledgeGraph"));
@@ -19,7 +19,9 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
   const [progress, setProgress] = useState<Progress | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [graph, setGraph] = useState<Graph | null>(null);
+  const [graphLoading, setGraphLoading] = useState(true);
   const [graphStudentId, setGraphStudentId] = useState("");
+  const [graphRevision, setGraphRevision] = useState(0);
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -52,26 +54,40 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
   }, [classroomId, canEdit, user.id]);
 
   useEffect(() => {
-    if (!graphStudentId) return;
+    const refreshGraph = () => setGraphRevision((revision) => revision + 1);
+    window.addEventListener(CLASSROOM_PROGRESS_UPDATED, refreshGraph);
+    return () => window.removeEventListener(CLASSROOM_PROGRESS_UPDATED, refreshGraph);
+  }, []);
+
+  useEffect(() => {
+    if (!graphStudentId) {
+      setGraph(null);
+      setGraphLoading(false);
+      return;
+    }
     let cancelled = false;
+    setGraphLoading(true);
     getClassroomGraph(classroomId, canEdit ? graphStudentId : undefined)
       .then((result) => {
         if (!cancelled) {
           setGraph(result);
-          setSelectedNodeId(result.nodes[0]?.id ?? "");
+          setSelectedNodeId((current) => result.nodes.some((node) => node.id === current) ? current : result.nodes[0]?.id ?? "");
         }
       })
       .catch((reason) => {
         if (!cancelled) setError((reason as Error).message || "Unable to load the knowledge graph.");
+      })
+      .finally(() => {
+        if (!cancelled) setGraphLoading(false);
       });
     return () => { cancelled = true; };
-  }, [classroomId, graphStudentId, canEdit]);
+  }, [classroomId, graphStudentId, canEdit, graphRevision]);
 
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId);
   const edgesForSelected = graph?.edges.filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId) ?? [];
 
   return (
-    <section className="mt-12 border-t border-primary/20 pt-7">
+    <section className="mt-8 rounded-2xl border border-primary/20 bg-black/90 p-5 md:p-7">
       <p className="text-xs uppercase tracking-[0.18em] text-primary/70">Learning evidence</p>
       <h2 className="mt-1 text-xl font-semibold">{canEdit ? "Class analytics" : "My progress"}</h2>
       {error && <p role="alert" className="mt-4 rounded-lg border border-red-400/40 bg-red-950/40 p-3 text-sm text-red-100">{error}</p>}
@@ -122,17 +138,18 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
           <div><p className="text-xs uppercase tracking-[0.15em] text-primary/65">Curriculum relationships and evidence</p><h3 className="mt-1 text-lg font-medium">Knowledge graph</h3></div>
           {canEdit && analytics && <label className="flex items-center gap-2 text-xs text-primary/75">Student<select value={graphStudentId} onChange={(event) => setGraphStudentId(event.target.value)} className="max-w-[220px] rounded-md border border-primary/25 bg-black/40 px-2 py-2 text-sm text-[#E1E0CC]">{analytics.students.map((student) => <option key={student.studentId} value={student.studentId}>{student.name}</option>)}</select></label>}
         </div>
-        {!graph || graph.nodes.length === 0 ? <p className="py-5 text-sm text-primary/70">Add curriculum topics and concepts to build this graph.</p> : (
+        {graphLoading && (!graph || graph.nodes.length === 0) ? <p className="py-5 text-sm text-primary/70">Loading the knowledge graph…</p> : !graph || graph.nodes.length === 0 ? <p className="py-5 text-sm text-primary/70">Completed or mastered topics will appear here as students progress through the curriculum.</p> : (
           <>
+          {graphLoading && <p aria-live="polite" className="mb-2 text-xs text-primary/55">Updating graph…</p>}
           <Suspense fallback={<p className="py-4 text-sm text-primary/70">Loading 3D graph…</p>}>
             <ClassroomKnowledgeGraph graph={graph} selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} />
           </Suspense>
           <div className="mt-3 grid gap-4 md:grid-cols-[1fr_280px]">
             <ul className="hidden gap-2 md:grid md:grid-cols-2">
-              {graph.nodes.map((node) => <li key={node.id}><button onClick={() => setSelectedNodeId(node.id)} className={`w-full border-l-2 px-3 py-3 text-left ${selectedNodeId === node.id ? "border-primary bg-primary/10" : "border-primary/25 bg-black/20"}`}><span className="block text-[10px] uppercase tracking-wide text-primary/65">{node.kind} · {node.coverage}</span><span className="mt-1 block text-sm">{node.label}</span><span className="mt-1 block text-xs text-primary/75">{node.mastery.score === null ? "No assessment evidence" : `${node.mastery.score}% · ${node.mastery.state} · ${node.mastery.confidence} confidence`}</span></button></li>)}
+              {graph.nodes.map((node) => <li key={node.id}><button onClick={() => setSelectedNodeId(node.id)} className={`w-full border-l-2 px-3 py-3 text-left ${selectedNodeId === node.id ? "border-primary bg-primary/10" : "border-primary/25 bg-black/20"}`}><span className="block text-[10px] uppercase tracking-wide text-primary/65">{node.kind} · {node.started && !node.completed ? "started" : node.coverage}</span><span className="mt-1 block text-sm">{node.label}</span><span className="mt-1 block text-xs text-primary/75">{node.mastery.score === null ? (node.started ? "Started · no assessment evidence" : "No assessment evidence") : `${node.mastery.score}% · ${node.mastery.state} · ${node.mastery.confidence} confidence`}</span></button></li>)}
             </ul>
             <aside className="border-t border-primary/20 pt-3 md:border-l md:border-t-0 md:pl-4">
-              {selectedNode ? <><p className="text-xs uppercase text-primary/65">Selected {selectedNode.kind}</p><h4 className="mt-1 font-medium">{selectedNode.label}</h4><p className="mt-2 text-sm text-[#D7D1B5]">Supporting evidence: {selectedNode.mastery.evidenceCount}</p><ul className="mt-2 grid gap-1 text-xs text-primary/70">{selectedNode.mastery.evidenceIds.map((id) => <li key={id}>{id}</li>)}</ul><p className="mt-3 text-xs text-primary/70">Relationships: {edgesForSelected.map((edge) => `${edge.kind} (${edge.source} → ${edge.target})`).join("; ") || "None"}</p></> : <p className="text-sm text-primary/70">Select a node to inspect its evidence.</p>}
+              {selectedNode ? <><p className="text-xs uppercase text-primary/65">Selected {selectedNode.kind}</p><h4 className="mt-1 font-medium">{selectedNode.label}</h4><p className="mt-1 text-xs text-primary/65">{selectedNode.moduleName}</p><p className="mt-2 text-sm text-[#D7D1B5]">{selectedNode.completed ? "Completed" : selectedNode.started ? "Started" : "Not started"} · {selectedNode.mastered ? "Mastered" : selectedNode.mastery.score === null ? "No assessment evidence" : `${selectedNode.mastery.score}% · ${selectedNode.mastery.state}`}</p><p className="mt-1 text-xs text-primary/60">Supporting evidence: {selectedNode.mastery.evidenceCount}</p><ul className="mt-2 grid gap-1 text-xs text-primary/70">{selectedNode.mastery.evidenceIds.map((id) => <li key={id}>{id}</li>)}</ul><p className="mt-3 text-xs text-primary/70">Relationships: {edgesForSelected.map((edge) => `${edge.kind} (${edge.source} → ${edge.target})`).join("; ") || "None"}</p></> : <p className="text-sm text-primary/70">Select a node to inspect its evidence.</p>}
             </aside>
           </div>
           </>

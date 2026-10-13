@@ -962,6 +962,9 @@ blockquote {
 }
 .prisma-auth-shell main {
   background: transparent;
+  max-width: var(--w);
+  margin: 0 auto;
+  padding: 0 20px 96px;
 }
 .prisma-auth-shell .hero {
   max-width: 900px;
@@ -1144,8 +1147,14 @@ blockquote {
   font-size: 0.75rem;
 }
 .prisma-auth-shell main {
-  max-width: 1120px;
-  padding-bottom: 7rem;
+  max-width: var(--w);
+  margin: 0 auto;
+  padding: 0 20px 7rem;
+}
+.prisma-auth-shell main > .classroom-page {
+  width: 100vw;
+  max-width: none;
+  margin-left: calc(50% - 50vw);
 }
 .prisma-auth-shell main > article {
   margin-top: 1.5rem;
@@ -1570,7 +1579,7 @@ blockquote {
 }
 .prisma-auth-shell .learn-difficulty {
   display: flex;
-  flex-direction:column;
+  /* flex-direction:column; */
   width: 100%;
   margin-top: 0.75rem;
   border: 1px solid rgba(225, 224, 204, 0.15);
@@ -1990,6 +1999,12 @@ blockquote {
   .prisma-auth-shell .top .mobile-menu .profile-button > span:not(.profile-button-fallback),
   .prisma-auth-shell .top .mobile-menu .profile-button small {
     display: inline;
+  }
+}
+
+@media (max-width: 760px) {
+  .prisma-auth-shell main > .classroom-page {
+    padding-top: calc(6rem + env(safe-area-inset-top));
   }
 }
 

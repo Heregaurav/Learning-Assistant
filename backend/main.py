@@ -326,6 +326,57 @@ def create_curriculum_topic(classroom_id: str, module_id: str, payload: Curricul
     return {**{k: v for k, v in topic.items() if k != "_id"}, "id": topic["_id"]}
 
 
+def _refresh_published_student_paths(classroom_id: str, classroom: dict):
+    modules = list(db.classroom_modules.find({"classroomId": classroom_id}))
+    modules.sort(key=lambda row: row.get("position", 0))
+    published_modules = []
+    for module in modules:
+        topics = list(db.classroom_curriculum_topics.find({"classroomId": classroom_id, "moduleId": module["_id"], "published": True}))
+        topics.sort(key=lambda row: row.get("position", 0))
+        if topics:
+            published_modules.append({
+                "id": module["_id"],
+                "title": module["title"],
+                "position": module.get("position", 0),
+                "topics": [{**{k: v for k, v in topic.items() if k != "_id"}, "id": topic["_id"]} for topic in topics],
+            })
+    for member in classroom.get("members", []):
+        if member.get("role") == "STUDENT":
+            path = build_adaptive_path(published_modules, [])
+            db.learning_paths.update_one(
+                {"_id": f"learning_path_{classroom_id}_{member['userId']}", "classroomId": classroom_id, "userId": member["userId"]},
+                {"$set": {"classroomId": classroom_id, "userId": member["userId"], "path": path, "updatedAt": now()}},
+                upsert=True,
+            )
+
+
+def delete_curriculum_module(classroom_id: str, module_id: str, user: dict):
+    classroom = require_classroom_editor(classroom_id, user)
+    module = db.classroom_modules.find_one({"_id": module_id, "classroomId": classroom_id})
+    if not module:
+        raise err(404, "not_found", "Curriculum module not found in this classroom.")
+    db.classroom_curriculum_topics.delete_many({"classroomId": classroom_id, "moduleId": module_id})
+    db.classroom_modules.delete_one({"_id": module_id, "classroomId": classroom_id})
+    if not db.classroom_curriculum_topics.find_one({"classroomId": classroom_id}):
+        db.classrooms.update_one({"_id": classroom_id}, {"$set": {"curriculumStatus": "draft", "updatedAt": now_iso()}})
+    elif classroom.get("curriculumStatus") == "published":
+        _refresh_published_student_paths(classroom_id, classroom)
+    return {"deleted": True, "id": module_id}
+
+
+def delete_curriculum_topic(classroom_id: str, topic_id: str, user: dict):
+    classroom = require_classroom_editor(classroom_id, user)
+    topic = db.classroom_curriculum_topics.find_one({"_id": topic_id, "classroomId": classroom_id})
+    if not topic:
+        raise err(404, "not_found", "Curriculum topic not found in this classroom.")
+    db.classroom_curriculum_topics.delete_one({"_id": topic_id, "classroomId": classroom_id})
+    if not db.classroom_curriculum_topics.find_one({"classroomId": classroom_id}):
+        db.classrooms.update_one({"_id": classroom_id}, {"$set": {"curriculumStatus": "draft", "updatedAt": now_iso()}})
+    elif classroom.get("curriculumStatus") == "published":
+        _refresh_published_student_paths(classroom_id, classroom)
+    return {"deleted": True, "id": topic_id}
+
+
 def publish_classroom_curriculum(classroom_id: str, user: dict):
     classroom = require_classroom_editor(classroom_id, user)
     modules = list(db.classroom_modules.find({"classroomId": classroom_id}))
@@ -403,26 +454,72 @@ def classroom_knowledge_graph(classroom_id: str, user: dict, student_id: str | N
     events = [e for e in db.learning_events.find({"classroomId": classroom_id}) if e.get("userId") == target]
     progress = build_student_progress(modules, events)
     states = {t["id"]: t for m in progress["modules"] for t in m["topics"]}
-    nodes, edges, concepts_by_name = [], [], {}
+    topic_ids = {topic["id"] for module in modules for topic in module["topics"]}
+    started_topic_ids = {
+        session.get("curriculumTopicId")
+        for session in db.sessions.find({"userId": target, "classroomId": classroom_id})
+        if session.get("curriculumTopicId") in topic_ids
+    }
+    submissions = list(db.classroom_submissions.find({"studentId": target, "classroomId": classroom_id}))
+    assessment_ids = {submission.get("assessmentId") for submission in submissions if submission.get("assessmentId")}
+    if assessment_ids:
+        started_topic_ids.update(
+            assessment.get("topicId")
+            for assessment in db.classroom_assessments.find({"_id": {"$in": list(assessment_ids)}, "classroomId": classroom_id})
+            if assessment.get("topicId") in topic_ids
+        )
+    eligible_modules = []
     for module in modules:
+        eligible_topics = []
+        for topic in module["topics"]:
+            state = states.get(topic["id"])
+            mastery = state["mastery"] if state else None
+            has_evidence = bool(mastery and mastery["evidenceCount"])
+            started = topic["id"] in started_topic_ids or has_evidence
+            completed = bool(state and state["coverage"] == "covered")
+            if not started and not completed:
+                continue
+            eligible_topics.append(topic)
+        if eligible_topics:
+            eligible_modules.append({**module, "topics": eligible_topics})
+    nodes, edges, concepts_by_name, visible_topic_ids = [], [], {}, {}
+    for module in eligible_modules:
         for topic in module["topics"]:
             topic_node = f"topic:{topic['id']}"
             state = states[topic["id"]]
-            nodes.append({"id": topic_node, "curriculumId": topic["id"], "label": topic["title"], "kind": "topic", "mastery": state["mastery"], "coverage": state["coverage"]})
+            visible_topic_ids[topic["id"]] = topic_node
+            has_evidence = bool(state["mastery"]["evidenceCount"])
+            nodes.append({"id": topic_node, "curriculumId": topic["id"], "label": topic["title"], "kind": "topic", "moduleId": module["id"], "moduleName": module["title"], "started": topic["id"] in started_topic_ids or has_evidence, "completed": state["coverage"] == "covered", "mastered": state["mastery"]["state"] == "strong", "mastery": state["mastery"], "coverage": state["coverage"]})
             for concept in topic.get("concepts", []):
                 cid = f"concept:{topic['id']}:{concept['name']}"
-                concepts_by_name.setdefault(concept["name"], cid)
-                cstate = next(c for c in state["concepts"] if c["name"] == concept["name"])
-                nodes.append({"id": cid, "curriculumId": concept["name"], "label": concept["name"], "kind": "concept", "mastery": cstate["mastery"], "coverage": state["coverage"]})
+                cstate = next((c for c in state["concepts"] if c["name"] == concept["name"]), None)
+                if not cstate or not cstate["mastery"]["evidenceCount"]:
+                    continue
+                concepts_by_name.setdefault(concept["name"], []).append(cid)
+                nodes.append({"id": cid, "curriculumId": concept["name"], "label": concept["name"], "kind": "concept", "moduleId": module["id"], "moduleName": module["title"], "started": True, "completed": state["coverage"] == "covered", "mastered": cstate["mastery"]["state"] == "strong", "mastery": cstate["mastery"], "coverage": state["coverage"]})
                 edges.append({"source": topic_node, "target": cid, "kind": "contains"})
-    for module in modules:
+    for module in eligible_modules:
         for topic in module["topics"]:
+            topic_node = visible_topic_ids[topic["id"]]
+            for prerequisite_id in topic.get("prerequisites", []):
+                prerequisite_node = visible_topic_ids.get(prerequisite_id)
+                if prerequisite_node:
+                    edges.append({"source": prerequisite_node, "target": topic_node, "kind": "prerequisite"})
             target_id = lambda name: f"concept:{topic['id']}:{name}"
             for concept in topic.get("concepts", []):
+                target_node = target_id(concept["name"])
+                if not any(node["id"] == target_node for node in nodes):
+                    continue
                 for prerequisite in concept.get("prerequisites", []):
-                    if prerequisite in concepts_by_name:
-                        edges.append({"source": concepts_by_name[prerequisite], "target": target_id(concept["name"]), "kind": "prerequisite"})
-    return {"studentId": target, "nodes": nodes, "edges": edges}
+                    source_nodes = [node_id for node_id in concepts_by_name.get(prerequisite, []) if node_id != target_node]
+                    if source_nodes:
+                        edges.append({"source": source_nodes[0], "target": target_node, "kind": "prerequisite"})
+    visible_node_ids = {node["id"] for node in nodes}
+    unique_edges = {}
+    for edge in edges:
+        if edge["source"] in visible_node_ids and edge["target"] in visible_node_ids:
+            unique_edges[(edge["source"], edge["target"], edge["kind"])] = edge
+    return {"studentId": target, "nodes": nodes, "edges": list(unique_edges.values())}
 
 
 def join_classroom(payload: dict, user: dict):
@@ -1401,6 +1498,16 @@ def create_curriculum_module_route(classroom_id: str, body: CurriculumModuleIn, 
 @app.post("/api/classrooms/{classroom_id}/modules/{module_id}/topics")
 def create_curriculum_topic_route(classroom_id: str, module_id: str, body: CurriculumTopicIn, user: dict = Depends(current_user)):
     return create_curriculum_topic(classroom_id, module_id, body, user)
+
+
+@app.delete("/api/classrooms/{classroom_id}/modules/{module_id}")
+def delete_curriculum_module_route(classroom_id: str, module_id: str, user: dict = Depends(current_user)):
+    return delete_curriculum_module(classroom_id, module_id, user)
+
+
+@app.delete("/api/classrooms/{classroom_id}/topics/{topic_id}")
+def delete_curriculum_topic_route(classroom_id: str, topic_id: str, user: dict = Depends(current_user)):
+    return delete_curriculum_topic(classroom_id, topic_id, user)
 
 
 @app.get("/api/classrooms/{classroom_id}/classwork")

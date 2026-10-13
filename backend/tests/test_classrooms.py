@@ -214,6 +214,37 @@ def test_only_classroom_owner_can_delete_and_related_data_is_removed():
     assert main.db.learning_paths.find_one({"classroomId": classroom["id"]}) is None
 
 
+def test_teacher_can_edit_published_curriculum_by_deleting_module_and_topic():
+    reset_db()
+    faculty = _user("faculty-1")
+    classroom = main.create_classroom(
+        {"name": "Algorithms", "subject": "CS", "section": "C", "semester": "Fall", "description": ""}, faculty
+    )
+    module = main.create_curriculum_module(classroom["id"], main.CurriculumModuleIn(title="Core theory"), faculty)
+    topic = main.create_curriculum_topic(
+        classroom["id"],
+        module["id"],
+        main.CurriculumTopicIn(title="Big-O notation", learningObjectives=["Define complexity"], concepts=[]),
+        faculty,
+    )
+    main.publish_classroom_curriculum(classroom["id"], faculty)
+
+    module_deleted = main.delete_curriculum_module(classroom["id"], module["id"], faculty)
+    assert module_deleted["deleted"] is True
+    assert main.get_classroom_curriculum(classroom["id"], faculty)["modules"] == []
+
+    module = main.create_curriculum_module(classroom["id"], main.CurriculumModuleIn(title="Graphs"), faculty)
+    topic = main.create_curriculum_topic(
+        classroom["id"],
+        module["id"],
+        main.CurriculumTopicIn(title="Shortest path", learningObjectives=["Explain BFS"], concepts=[]),
+        faculty,
+    )
+    topic_deleted = main.delete_curriculum_topic(classroom["id"], topic["id"], faculty)
+    assert topic_deleted["deleted"] is True
+    assert main.get_classroom_curriculum(classroom["id"], faculty)["modules"][0]["topics"] == []
+
+
 def test_student_can_create_classroom_and_admin_can_manage_roles():
     reset_db()
     student_user = _user("student-1")
@@ -591,18 +622,54 @@ def test_student_progress_graph_and_faculty_analytics_are_scoped_to_classroom():
     module = main.create_curriculum_module(
         classroom["id"], main.CurriculumModuleIn(title="Relational design"), faculty
     )
-    topic = main.create_curriculum_topic(
+    completed_topic = main.create_curriculum_topic(
         classroom["id"],
         module["id"],
         main.CurriculumTopicIn(
             title="Normalization",
-            concepts=[main.CurriculumConceptIn(name="3NF")],
+            concepts=[
+                main.CurriculumConceptIn(name="3NF", prerequisites=["BCNF"]),
+                main.CurriculumConceptIn(name="BCNF"),
+            ],
         ),
+        faculty,
+    )
+    pending_topic = main.create_curriculum_topic(
+        classroom["id"],
+        module["id"],
+        main.CurriculumTopicIn(
+            title="Indexing",
+            concepts=[main.CurriculumConceptIn(name="B-tree")],
+        ),
+        faculty,
+    )
+    struggling_topic = main.create_curriculum_topic(
+        classroom["id"],
+        module["id"],
+        main.CurriculumTopicIn(title="Query tuning", concepts=[main.CurriculumConceptIn(name="Index scans")]),
+        faculty,
+    )
+    started_topic = main.create_curriculum_topic(
+        classroom["id"],
+        module["id"],
+        main.CurriculumTopicIn(title="Deadlocks", concepts=[main.CurriculumConceptIn(name="Wait-for graph")]),
         faculty,
     )
     main.publish_classroom_curriculum(classroom["id"], faculty)
     student = _user("student-1")
     main.join_classroom({"joinCode": classroom["joinCode"]}, student)
+    assert main.classroom_knowledge_graph(classroom["id"], student)["nodes"] == []
+    main.db.sessions.insert_one(
+        {
+            "_id": "started-session",
+            "userId": student["id"],
+            "classroomId": classroom["id"],
+            "curriculumTopicId": started_topic["id"],
+            "curriculumModuleId": module["id"],
+            "concepts": ["Wait-for graph"],
+            "evaluation": {"completed": False},
+        }
+    )
     for event_id, score, activity in (("quiz-1", 80, "quiz"), ("assignment-1", 100, "assignment")):
         main.db.learning_events.insert_one(
             {
@@ -610,11 +677,27 @@ def test_student_progress_graph_and_faculty_analytics_are_scoped_to_classroom():
                 "userId": student["id"],
                 "classroomId": classroom["id"],
                 "moduleId": module["id"],
-                "topicId": topic["id"],
+                "topicId": completed_topic["id"],
                 "concepts": ["3NF"],
                 "activityType": activity,
                 "evidenceType": "assessment",
                 "masteryScore": score,
+                "coverage": True,
+                "evaluationStatus": "complete",
+            }
+        )
+    for event_id, activity in (("weak-quiz", "quiz"), ("weak-assignment", "assignment")):
+        main.db.learning_events.insert_one(
+            {
+                "_id": event_id,
+                "userId": student["id"],
+                "classroomId": classroom["id"],
+                "moduleId": module["id"],
+                "topicId": struggling_topic["id"],
+                "concepts": ["Index scans"],
+                "activityType": activity,
+                "evidenceType": "assessment",
+                "masteryScore": 35,
                 "coverage": True,
                 "evaluationStatus": "complete",
             }
@@ -624,9 +707,18 @@ def test_student_progress_graph_and_faculty_analytics_are_scoped_to_classroom():
     graph = main.classroom_knowledge_graph(classroom["id"], student)
     analytics = main.classroom_analytics(classroom["id"], faculty)
 
-    assert progress["coverage"]["percent"] == 100
+    assert progress["coverage"]["percent"] == 50
     assert progress["modules"][0]["topics"][0]["mastery"]["evidenceCount"] == 2
-    assert {node["label"] for node in graph["nodes"]} == {"Normalization", "3NF"}
+    assert {node["label"] for node in graph["nodes"]} == {"Normalization", "3NF", "Deadlocks", "Query tuning", "Index scans"}
+    assert pending_topic["id"] not in {node["curriculumId"] for node in graph["nodes"] if node["kind"] == "topic"}
+    assert struggling_topic["id"] in {node["curriculumId"] for node in graph["nodes"] if node["kind"] == "topic"}
+    started_node = next(node for node in graph["nodes"] if node["curriculumId"] == started_topic["id"])
+    assert started_node["started"] is True
+    assert started_node["completed"] is False
+    assert started_node["mastery"]["score"] is None
+    assert all(edge["source"] in {node["id"] for node in graph["nodes"]} and edge["target"] in {node["id"] for node in graph["nodes"]} for edge in graph["edges"])
+    assert not any(edge["kind"] == "prerequisite" for edge in graph["edges"])
+    assert all(node["moduleId"] == module["id"] and node["moduleName"] == module["title"] for node in graph["nodes"])
     assert analytics["enrolledStudents"] == 1
     assert analytics["students"][0]["name"] == "Student User"
     assert analytics["averageMastery"] == progress["mastery"]["score"]

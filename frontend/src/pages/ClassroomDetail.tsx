@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowRight, BookOpen, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, BookOpen, Menu, Plus, Trash2, X } from "lucide-react";
 import {
   createCurriculumModule,
   createCurriculumTopic,
   deleteClassroom,
+  deleteCurriculumModule,
+  deleteCurriculumTopic,
   getClassroomCurriculum,
   getClassroomProgress,
   generateClassroomCurriculum,
@@ -36,8 +38,11 @@ export default function ClassroomDetail({ user }: Props) {
   const [teacherNotes, setTeacherNotes] = useState("");
   const [materialUrl, setMaterialUrl] = useState("");
   const [activeTab, setActiveTab] = useState("learn");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false);
   const [progress, setProgress] = useState<ClassroomProgress | null>(null);
   const [selectedTopicId, setSelectedTopicId] = useState("");
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
   const [publishing, setPublishing] = useState(false);
   const [curriculumPrompt, setCurriculumPrompt] = useState("");
   const [draft, setDraft] = useState<{ modules: { title: string; description?: string; topics: Omit<CurriculumTopic, "id">[] }[] } | null>(null);
@@ -70,15 +75,27 @@ export default function ClassroomDetail({ user }: Props) {
     setActiveTab(canEdit ? "overview" : "learn");
   }, [canEdit]);
 
-  const refresh = async () => {
-    setLoading(true);
+  useEffect(() => {
+    if (!mobileNavOpen && !mobileOutlineOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileNavOpen(false);
+        setMobileOutlineOpen(false);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileNavOpen, mobileOutlineOpen]);
+
+  const refresh = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setLoading(true);
     setError("");
     try {
       setData(await getClassroomCurriculum(classroomId));
     } catch (reason) {
       setError((reason as Error).message || "Unable to load this classroom.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -99,6 +116,22 @@ export default function ClassroomDetail({ user }: Props) {
       .catch(() => setProgress(null));
   }, [classroomId, user?.id, canEdit]);
 
+  useEffect(() => {
+    if (!data || data.modules.length === 0) return;
+    setExpandedModules((current) => {
+      const next: Record<string, boolean> = { ...current };
+      for (const module of data.modules) {
+        if (!(module.id in next)) {
+          next[module.id] = true;
+        }
+      }
+      if (!selectedTopicId) {
+        next[data.modules[0].id] = true;
+      }
+      return next;
+    });
+  }, [data, selectedTopicId]);
+
   const submitModule = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
@@ -113,7 +146,7 @@ export default function ClassroomDetail({ user }: Props) {
       setModuleDescription("");
       setActiveModuleId(module.id);
       setNotice("Module added to this classroom.");
-      await refresh();
+      await refresh({ silent: true });
     } catch (reason) {
       setError((reason as Error).message || "Unable to create module.");
     }
@@ -154,7 +187,7 @@ export default function ClassroomDetail({ user }: Props) {
       setTeacherNotes("");
       setMaterialUrl("");
       setNotice("Topic added to the official curriculum.");
-      await refresh();
+      await refresh({ silent: true });
     } catch (reason) {
       setError((reason as Error).message || "Unable to create topic.");
     }
@@ -177,7 +210,7 @@ export default function ClassroomDetail({ user }: Props) {
     try {
       await publishClassroomCurriculum(classroomId);
       setNotice("Curriculum published. Students can now begin their learning paths.");
-      await refresh();
+      await refresh({ silent: true });
     } catch (reason) {
       setError((reason as Error).message || "Unable to publish curriculum.");
     } finally {
@@ -208,9 +241,39 @@ export default function ClassroomDetail({ user }: Props) {
       }
       setDraft(null);
       setNotice("AI draft added as editable curriculum content. Review it before publishing.");
-      await refresh();
+      await refresh({ silent: true });
     } catch (reason) {
       setError((reason as Error).message || "Unable to add curriculum draft.");
+    }
+  };
+
+  const removeCurriculumModule = async (moduleId: string) => {
+    if (!window.confirm("Delete this module and all of its topics from the published curriculum?")) return;
+    setError("");
+    try {
+      await deleteCurriculumModule(classroomId, moduleId);
+      if (selectedTopicId) {
+        setSelectedTopicId("");
+      }
+      setNotice("Module deleted from the curriculum.");
+      await refresh({ silent: true });
+    } catch (reason) {
+      setError((reason as Error).message || "Unable to delete this module.");
+    }
+  };
+
+  const removeCurriculumTopic = async (topicId: string) => {
+    if (!window.confirm("Delete this topic from the classroom curriculum?")) return;
+    setError("");
+    try {
+      await deleteCurriculumTopic(classroomId, topicId);
+      if (selectedTopicId === topicId) {
+        setSelectedTopicId("");
+      }
+      setNotice("Topic removed from the curriculum.");
+      await refresh({ silent: true });
+    } catch (reason) {
+      setError((reason as Error).message || "Unable to delete this topic.");
     }
   };
 
@@ -219,8 +282,9 @@ export default function ClassroomDetail({ user }: Props) {
   if (!data) return null;
 
   return (
-    <section className="mx-auto max-w-6xl px-4 py-8 text-[#E1E0CC]">
-      <Link to="/classrooms" className="text-sm text-primary hover:underline">← Classrooms</Link>
+    <section className="classroom-page w-full min-h-screen px-3 pb-8 pt-4 text-[#E1E0CC] md:px-5">
+      <div className="mx-auto max-w-[1600px]">
+        <Link to="/classrooms" className="text-sm text-primary hover:underline">← Classrooms</Link>
       <header className="mt-5 flex flex-wrap items-start justify-between gap-5 border-b border-primary/20 pb-6">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-primary/80">
@@ -240,7 +304,17 @@ export default function ClassroomDetail({ user }: Props) {
         )}
       </header>
 
-      <nav aria-label="Classroom sections" role="tablist" className="sticky top-0 z-20 mt-3 flex gap-1 overflow-x-auto border-b border-primary/20 bg-black/90 py-1 backdrop-blur">
+      <button
+        type="button"
+        className="mt-3 inline-flex min-h-11 items-center gap-2 border border-primary/25 bg-black/80 px-3 text-sm text-[#E1E0CC] md:hidden"
+        onClick={() => setMobileNavOpen(true)}
+        aria-expanded={mobileNavOpen}
+        aria-controls="classroom-mobile-navigation"
+      >
+        <Menu size={18} /> Sections
+      </button>
+
+      <nav aria-label="Classroom sections" role="tablist" className="sticky top-0 z-20 mt-3 hidden gap-1 overflow-x-auto border-b border-primary/20 bg-black/90 py-1 backdrop-blur md:flex">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -253,6 +327,56 @@ export default function ClassroomDetail({ user }: Props) {
           </button>
         ))}
       </nav>
+
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-50 md:hidden" id="classroom-mobile-navigation">
+          <button
+            type="button"
+            className="absolute inset-0 h-full w-full bg-black/70"
+            onClick={() => setMobileNavOpen(false)}
+            aria-label="Close classroom sections"
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Classroom sections"
+            className="absolute inset-y-0 left-0 flex w-[min(86vw,340px)] flex-col border-r border-primary/25 bg-[#080d12] text-[#E1E0CC] shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-primary/20 p-5">
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-primary/70">Classroom</p>
+                <h2 className="mt-1 truncate text-base font-semibold">{data.classroom.name}</h2>
+              </div>
+              <button
+                type="button"
+                className="grid h-9 w-9 shrink-0 place-items-center border border-primary/20 text-primary"
+                onClick={() => setMobileNavOpen(false)}
+                aria-label="Close classroom sections"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <nav aria-label="Classroom sections" role="tablist" className="grid gap-1 overflow-y-auto p-3">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    setMobileNavOpen(false);
+                    setMobileOutlineOpen(false);
+                  }}
+                  className={`min-h-12 border-l-2 px-4 text-left text-sm transition-colors ${activeTab === tab.id ? "border-primary bg-primary/10 text-primary" : "border-transparent text-[#D7D1B5] hover:bg-white/5"}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </aside>
+        </div>
+      )}
 
       {error && <div role="alert" className="mt-4 rounded-lg border border-red-400/40 bg-red-950/40 p-3 text-sm text-red-100">{error}</div>}
       {notice && <p role="status" className="mt-4 text-sm text-emerald-200">{notice}</p>}
@@ -293,48 +417,151 @@ export default function ClassroomDetail({ user }: Props) {
       )}
 
       {activeTab === "learn" && progress && (
-        <section className="mt-6 border border-primary/20 bg-black/20 p-5">
+        <section className="mt-6 rounded-none  border border-primary/20 bg-black/90 p-5 shadow-[0_0_0_1px_rgba(166,196,255,0.04)]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-primary/70">Your adaptive path</p>
-              <h2 className="mt-1 text-xl font-semibold">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-primary/70">Your adaptive path</p>
+              <h2 className="mt-2 text-[1.65rem] font-semibold leading-tight text-[#f2efe8]">
                 {progress.learningPath.progress.completed} of {progress.learningPath.progress.total} topics confirmed
               </h2>
-              <p className="mt-1 text-sm text-[#D7D1B5]">
+              <p className="mt-1 text-sm text-[#d7d1b5]">
                 {progress.learningPath.progress.percent}% complete · mastery {progress.mastery.score ?? "not measured"}
               </p>
             </div>
             {progress.learningPath.recommendation && (
               <Link
                 to={`/?classroomId=${encodeURIComponent(classroomId)}&topicId=${encodeURIComponent(progress.learningPath.recommendation.topicId)}`}
-                className="max-w-sm border border-primary/40 px-4 py-3 text-sm text-primary hover:bg-primary/10"
+                className="max-w-sm  border border-primary/30 bg-[#0d161f] px-4 py-3 text-left text-sm text-primary transition-colors hover:border-primary/60 hover:bg-primary/5"
               >
-                <span className="block text-xs uppercase tracking-wide text-primary/70">Next action</span>
-                <strong className="mt-1 block">{progress.learningPath.recommendation.nextAction}: {progress.learningPath.recommendation.title}</strong>
-                <span className="mt-1 block text-xs text-[#D7D1B5]">{progress.learningPath.recommendation.reason}</span>
+                <span className="block text-[10px] uppercase tracking-[0.14em] text-primary/70">Next action</span>
+                <strong className="mt-2 block text-base font-medium text-[#f2efe8]">
+                  {progress.learningPath.recommendation.nextAction}: {progress.learningPath.recommendation.title}
+                </strong>
+                <span className="mt-1 block text-xs leading-relaxed text-[#d7d1b5]">
+                  {progress.learningPath.recommendation.reason}
+                </span>
               </Link>
             )}
-          </div>
-          <div className="mt-5 grid gap-2 md:grid-cols-2">
-            {progress.learningPath.items.map((item) => (
-              <button
-                key={item.topicId}
-                type="button"
-                onClick={() => setSelectedTopicId(item.topicId)}
-                className={`flex items-center justify-between gap-3 border-l-2 px-3 py-2 text-left text-sm hover:bg-primary/10 ${selectedTopicId === item.topicId ? "border-primary bg-primary/10" : "border-primary/30"}`}
-              >
-                <span>
-                  <strong className="block">{item.title}</strong>
-                  <span className="text-xs text-[#D7D1B5]">{item.reason}</span>
-                </span>
-                <span className="shrink-0 text-xs uppercase text-primary/75">{item.status.replace("_", " ")}</span>
-              </button>
-            ))}
           </div>
         </section>
       )}
 
-      {activeTab === "learn" && !selectedTopicId && (
+      {activeTab === "learn" && data.modules.length > 0 && (
+        <>
+        <button
+          type="button"
+          className="mt-5 inline-flex min-h-11 items-center gap-2 border border-primary/25 bg-[#030303] px-3 text-sm text-[#E1E0CC] xl:hidden"
+          onClick={() => setMobileOutlineOpen(true)}
+          aria-expanded={mobileOutlineOpen}
+          aria-controls="classroom-course-outline"
+        >
+          <Menu size={18} /> Course modules
+        </button>
+        <section className="mt-3 grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+          {mobileOutlineOpen && (
+            <button
+              type="button"
+              className="fixed inset-0 z-40 bg-black/70 xl:hidden"
+              onClick={() => setMobileOutlineOpen(false)}
+              aria-label="Close course modules"
+            />
+          )}
+          <aside id="classroom-course-outline" className={`fixed inset-y-0 left-0 z-50 h-dvh w-[min(88vw,420px)] overflow-y-auto border-r border-primary/25 bg-[#030303] p-3 shadow-2xl transition-transform duration-200 xl:static xl:z-auto xl:h-auto xl:w-auto xl:translate-x-0 xl:overflow-visible xl:shadow-none xl:min-h-[560px] ${mobileOutlineOpen ? "translate-x-0" : "-translate-x-full"}`}>
+            <div className="mb-3 flex items-center justify-between px-2 pt-1">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-primary/70">Course outline</p>
+                <span className="text-[10px] uppercase tracking-[0.12em] text-primary/60">{data.modules.length} modules</span>
+              </div>
+              <button type="button" className="grid h-9 w-9 place-items-center border border-primary/20 text-primary xl:hidden" onClick={() => setMobileOutlineOpen(false)} aria-label="Close course modules">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {data.modules.map((module, moduleIndex) => {
+                const isExpanded = expandedModules[module.id] ?? true;
+                return (
+                  <div
+                    key={module.id}
+                    className="rounded-none border border-primary/10 bg-[#0d141d] overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setExpandedModules((current) => ({ ...current, [module.id]: !isExpanded }))}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-primary/5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] uppercase tracking-[0.16em] text-primary/60">Module {String(moduleIndex + 1).padStart(2, "0")}</p>
+                        <p className="mt-1 truncate text-sm font-medium text-[#F2EFE8]">{module.title}</p>
+                      </div>
+                      <span className={`text-primary/70 transition-transform ${isExpanded ? "rotate-180" : ""}`}>
+                        ▾
+                      </span>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t border-primary/10 bg-[#1d1e20] px-2 pb-2 pt-2">
+                        {module.topics.length === 0 ? (
+                          <p className="px-2 py-2 text-xs text-primary/60">No topics in this module yet.</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {module.topics.map((topic) => {
+                              const isSelected = selectedTopicId === topic.id;
+                              return (
+                                <button
+                                  key={topic.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedTopicId(topic.id);
+                                    setMobileOutlineOpen(false);
+                                  }}
+                                  className={`flex w-full items-center justify-between gap-3 rounded-none border px-2.5 py-2 text-left transition-colors ${
+                                    isSelected
+                                      ? "border-primary/50 bg-primary/10 text-[#f2efe8]"
+                                      : "border-transparent bg-transparent text-[#d7d1b5] hover:border-primary/15 hover:bg-primary/5"
+                                  }`}
+                                >
+                                  <span className="min-w-0 flex-1 text-sm leading-relaxed">{topic.title}</span>
+                                  <span className="shrink-0 text-[9px] uppercase tracking-[0.12em] text-primary/60">{topic.title ? "topic" : ""}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+
+<div className="min-w-0 w-full">
+            {activeTab === "learn" && !selectedTopicId && (
+              <section className="rounded-2xl border border-primary/20 bg-black/20 p-5 md:p-7">
+                <p className="text-xs uppercase tracking-[0.18em] text-primary/70">Curriculum agent</p>
+                <h2 className="mt-1 text-3xl font-semibold leading-tight md:text-4xl">Your teacher&apos;s curriculum will unlock this tutor</h2>
+                <p className="mt-2 max-w-3xl text-sm text-[#D7D1B5] md:text-base">
+                  Add or publish a curriculum topic first. The classroom agent stays focused on the approved learning path and does not operate as a general chatbot.
+                </p>
+              </section>
+            )}
+
+            {activeTab === "learn" && selectedTopicId && (
+              <section className="rounded-2xl border border-primary/20 bg-[#030303] p-2 md:p-3 xl:min-h-[560px]">
+                <Learn
+                  classroomId={classroomId}
+                  curriculumTopicId={selectedTopicId}
+                  classroomOnly
+                />
+              </section>
+            )}
+          </div>
+        </section>
+        </>
+      )}
+
+      {activeTab === "learn" && data.modules.length === 0 && !selectedTopicId && (
         <section className="mt-7 border border-primary/20 bg-black/20 p-5">
           <p className="text-xs uppercase tracking-[0.18em] text-primary/70">Curriculum agent</p>
           <h2 className="mt-1 text-xl font-semibold">Your teacher&apos;s curriculum will unlock this tutor</h2>
@@ -344,37 +571,34 @@ export default function ClassroomDetail({ user }: Props) {
         </section>
       )}
 
-      {activeTab === "learn" && selectedTopicId && (
-        <section className="mt-7 border-t border-primary/20 pt-6">
-          <Learn
-            classroomId={classroomId}
-            curriculumTopicId={selectedTopicId}
-            classroomOnly
-          />
-        </section>
-      )}
-
-      {(activeTab === "curriculum" || activeTab === "learn") && <div className="mt-7">
+      {activeTab === "curriculum" && <section className="mt-7 rounded-none border border-primary/25 bg-black/95 p-5 text-[#f2efe8] md:p-7">
         <div className="flex items-end justify-between gap-4 border-b border-primary/20 pb-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-primary/70">Course outline</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-primary/90">Course outline</p>
             <h2 className="mt-1 text-xl font-semibold">Curriculum</h2>
           </div>
-          <span className="text-xs text-primary/70">{data.modules.length} modules</span>
+          <span className="text-xs text-primary/90">{data.modules.length} modules</span>
         </div>
         {data.modules.length === 0 ? (
-          <p className="py-8 text-sm text-primary/70">No curriculum modules have been published yet.</p>
+          <p className="py-8 text-sm text-[#dedbc8]">No curriculum modules have been published yet.</p>
         ) : (
-          <div className="divide-y divide-primary/15">
+          <div className="divide-y divide-primary/25">
             {data.modules.map((module, moduleIndex) => (
               <article key={module.id} className="py-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs text-primary/60">MODULE {String(moduleIndex + 1).padStart(2, "0")}</p>
+                    <p className="text-xs font-medium text-primary/85">MODULE {String(moduleIndex + 1).padStart(2, "0")}</p>
                     <h3 className="mt-1 text-xl font-medium">{module.title}</h3>
-                    {module.description && <p className="mt-1 text-sm text-[#D7D1B5]">{module.description}</p>}
+                    {module.description && <p className="mt-1 text-sm text-[#e5e2d6]">{module.description}</p>}
                   </div>
-                  <span className="text-xs text-primary/65">{module.topics.length} topics</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-primary/85">{module.topics.length} topics</span>
+                    {canEdit && (
+                      <button type="button" onClick={() => void removeCurriculumModule(module.id)} className="inline-flex items-center gap-1 rounded-md border border-red-400/40 px-2 py-1 text-xs text-red-200 hover:bg-red-950/40" aria-label={`Delete module ${module.title}`}>
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-4 grid gap-3">
@@ -383,22 +607,29 @@ export default function ClassroomDetail({ user }: Props) {
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <h4 className="font-medium">{topic.title}</h4>
-                          {topic.description && <p className="mt-1 text-sm text-[#D7D1B5]">{topic.description}</p>}
+                          {topic.description && <p className="mt-1 text-sm text-[#e5e2d6]">{topic.description}</p>}
                         </div>
-                        <Link
-                          to={`/?classroomId=${encodeURIComponent(classroomId)}&topicId=${encodeURIComponent(topic.id)}`}
-                          className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-primary/30 px-3 py-2 text-sm text-primary hover:bg-primary/10"
-                        >
-                          <BookOpen size={15} /> Learn with Curiosity <ArrowRight size={14} />
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            to={`/?classroomId=${encodeURIComponent(classroomId)}&topicId=${encodeURIComponent(topic.id)}`}
+                            className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-primary/30 px-3 py-2 text-sm text-primary hover:bg-primary/10"
+                          >
+                            <BookOpen size={15} /> Learn with Curiosity <ArrowRight size={14} />
+                          </Link>
+                          {canEdit && (
+                            <button type="button" onClick={() => void removeCurriculumTopic(topic.id)} className="inline-flex items-center gap-1 rounded-lg border border-red-400/40 px-2 py-2 text-xs text-red-200 hover:bg-red-950/40" aria-label={`Delete topic ${topic.title}`}>
+                              <Trash2 size={14} /> Delete
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {topic.learningObjectives.length > 0 && (
-                        <div className="mt-3 text-sm"><p className="text-xs uppercase tracking-wide text-primary/65">Learning objectives</p><ul className="mt-1 list-disc pl-5 text-[#D7D1B5]">{topic.learningObjectives.map((item) => <li key={item}>{item}</li>)}</ul></div>
+                        <div className="mt-3 text-sm"><p className="text-xs uppercase tracking-wide text-primary/90">Learning objectives</p><ul className="mt-1 list-disc pl-5 text-[#e5e2d6]">{topic.learningObjectives.map((item) => <li key={item}>{item}</li>)}</ul></div>
                       )}
-                      {topic.concepts.length > 0 && <p className="mt-2 text-xs text-primary/70">Concepts: {topic.concepts.map((concept) => concept.name).join(", ")}</p>}
+                      {topic.concepts.length > 0 && <p className="mt-2 text-xs text-primary/90">Concepts: {topic.concepts.map((concept) => concept.name).join(", ")}</p>}
                       {topic.materials.map((material, index) => (
-                        <div key={`${topic.id}-material-${index}`} className="mt-2 text-sm text-[#D7D1B5]">
-                          {material.kind === "link" && material.url ? <a className="text-primary underline" href={material.url} target="_blank" rel="noreferrer">{material.title}</a> : <p><span className="text-primary/70">{material.title}: </span>{material.content}</p>}
+                        <div key={`${topic.id}-material-${index}`} className="mt-2 text-sm text-[#e5e2d6]">
+                          {material.kind === "link" && material.url ? <a className="text-primary underline" href={material.url} target="_blank" rel="noreferrer">{material.title}</a> : <p><span className="text-primary/90">{material.title}: </span>{material.content}</p>}
                         </div>
                       ))}
                     </section>
@@ -430,7 +661,7 @@ export default function ClassroomDetail({ user }: Props) {
             ))}
           </div>
         )}
-      </div>}
+      </section>}
       {activeTab === "classwork" && user && <ClassworkPanel classroomId={classroomId} canEdit={canEdit} />}
       {activeTab === "stream" && user && <ClassroomStream classroomId={classroomId} canAnnounce={canEdit} />}
       {activeTab === "people" && (
@@ -448,6 +679,7 @@ export default function ClassroomDetail({ user }: Props) {
         </section>
       )}
       {((activeTab === "progress" && !canEdit) || (activeTab === "analytics" && canEdit)) && user && <ClassroomInsights classroomId={classroomId} canEdit={canEdit} user={user} />}
+      </div>
     </section>
   );
 }

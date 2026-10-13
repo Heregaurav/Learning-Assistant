@@ -16,6 +16,8 @@ import type {
 
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 const apiUrl = (path: string) => `${BASE}/${path.replace(/^\/+/, "")}`;
+export const CLASSROOM_PROGRESS_UPDATED = "curiosity:classroom-progress-updated";
+const notifyProgressUpdated = () => window.dispatchEvent(new Event(CLASSROOM_PROGRESS_UPDATED));
 const CSRF_TOKEN_KEY = "curiosity.csrf-token";
 let csrfToken = localStorage.getItem(CSRF_TOKEN_KEY) ?? "";
 
@@ -208,6 +210,16 @@ export const createCurriculumTopic = (
     body: JSON.stringify(payload),
   });
 
+export const deleteCurriculumModule = (classroomId: string, moduleId: string) =>
+  req<{ deleted: boolean; id: string }>(`${classroomPath(classroomId)}/modules/${encodeURIComponent(moduleId)}`, {
+    method: "DELETE",
+  });
+
+export const deleteCurriculumTopic = (classroomId: string, topicId: string) =>
+  req<{ deleted: boolean; id: string }>(`${classroomPath(classroomId)}/topics/${encodeURIComponent(topicId)}`, {
+    method: "DELETE",
+  });
+
 export const publishClassroomCurriculum = (classroomId: string) =>
   req<{ status: string; version: number }>(`${classroomPath(classroomId)}/curriculum/publish`, {
     method: "POST",
@@ -286,6 +298,9 @@ export const gradeClassroomSubmission = (
   req<{ id: string; score: number; released: boolean }>(`${classroomPath(classroomId)}/classwork/${encodeURIComponent(assessmentId)}/submissions/${encodeURIComponent(submissionId)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
+  }).then((result) => {
+    notifyProgressUpdated();
+    return result;
   });
 
 export type AnswerEvaluation = {
@@ -301,6 +316,9 @@ export const evaluateClassroomSubmission = (classroomId: string, assessmentId: s
   req<AnswerEvaluation>(`${classroomPath(classroomId)}/classwork/${encodeURIComponent(assessmentId)}/submissions/${encodeURIComponent(submissionId)}/evaluate`, {
     method: "POST",
     body: JSON.stringify({}),
+  }).then((result) => {
+    notifyProgressUpdated();
+    return result;
   });
 
 export const generateClassroomCurriculum = (
@@ -411,6 +429,9 @@ export const completeSession = (id: string, body: object) =>
   req<{ topicProgress: number }>(`/api/sessions/${id}/complete`, {
     method: "POST",
     body: JSON.stringify(body),
+  }).then((result) => {
+    notifyProgressUpdated();
+    return result;
   });
 export const getSessions = () => req<SavedSession[]>("/api/sessions");
 export const getSession = (id: string) => req<SavedSession & { learningContent: Lesson }>(`/api/sessions/${id}`);
