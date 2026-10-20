@@ -38,6 +38,7 @@ class QuizQuestion(BaseModel):
     options: List[str] = Field(min_length=2)
     correctAnswer: str
     explanation: str = Field(min_length=1)
+    conceptIds: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_answer(self):
@@ -82,15 +83,15 @@ class DocumentLearningRequest(BaseModel):
 
 
 class CompleteIn(BaseModel):
-    correct: int = Field(ge=0)
-    incorrect: int = Field(ge=0)
-    total: int = Field(gt=0)
+    correct: Optional[int] = Field(default=None, ge=0)
+    incorrect: Optional[int] = Field(default=None, ge=0)
+    total: Optional[int] = Field(default=None, gt=0)
     cardsReviewed: int = Field(default=0, ge=0)
     answers: Dict[str, str] = {}
 
     @model_validator(mode="after")
     def check_total(self):
-        if self.correct + self.incorrect != self.total:
+        if self.correct is not None and self.incorrect is not None and self.total is not None and self.correct + self.incorrect != self.total:
             raise ValueError("correct + incorrect must equal total")
         return self
 

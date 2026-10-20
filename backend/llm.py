@@ -37,7 +37,7 @@ The output must match this exact structure with no missing keys:
     {"id": "string", "question": "string", "answer": "string"}
   ],
   "quiz": [
-    {"id": "string", "question": "string", "options": ["string", "string", "string", "string"], "correctAnswer": "string", "explanation": "string"}
+    {"id": "string", "question": "string", "options": ["string", "string", "string", "string"], "correctAnswer": "string", "explanation": "string", "conceptIds": []}
     ],
     "blocks": [
         {"kind":"card","title":"...","body":"..."},
@@ -51,6 +51,7 @@ Rules:
 - every quiz question must have 4 options and exactly one correct answer copied exactly from options
 - each flashcard must include an id
 - each quiz question must include id, question, options, correctAnswer, explanation
+- when the input supplies official curriculum concept identifiers, include conceptIds on each question using only those exact identifiers; use an empty list when no reliable mapping exists
 - explanation.keyTakeaways and explanation.commonMistakes are required arrays
 - adapt depth to the requested difficulty
 - keep answers faithful to the user's notes; do not invent facts
@@ -74,9 +75,10 @@ Return valid JSON only."""
 
 RETEST_SYSTEM = """Create exactly 3 new quiz questions from the learner's topic or notes.
 Return ONLY one JSON object in this shape:
-{"quiz":[{"id":"retest-1","question":"...","options":["...","...","...","..."],"correctAnswer":"...","explanation":"..."}]}
+{"quiz":[{"id":"retest-1","question":"...","options":["...","...","...","..."],"correctAnswer":"...","explanation":"...","conceptIds":[]}]}
 Every question must test a different topic-specific fact or idea and must not repeat the supplied existing questions.
 Use exactly 4 distinct options per question and copy correctAnswer exactly from options.
+Use only the exact official concept identifiers supplied in the request, and leave conceptIds empty when a question cannot be confidently mapped.
 Keep each explanation short. Return valid JSON only."""
 CURRICULUM_SYSTEM = """You are a curriculum designer. Return only JSON with this shape:
 {"modules":[{"title":"...","description":"...","topics":[{"title":"...","description":"...","learningObjectives":["..."],"prerequisites":["topic title"],"concepts":[{"name":"...","description":"...","prerequisites":["concept name"]}]}]}]}
@@ -229,6 +231,11 @@ def _normalize_quiz(quiz, topic):
                             q.get("explanation")
                             or "This answer is correct because it matches the core idea."
                         ),
+                        "conceptIds": [
+                            str(value).strip()
+                            for value in q.get("conceptIds", [])
+                            if str(value).strip()
+                        ] if isinstance(q.get("conceptIds", []), list) else [],
                     }
                 )
     return normalized[:8]

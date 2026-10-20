@@ -1,8 +1,9 @@
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any
 
-MASTERY_THRESHOLDS = {"strong": 80, "developing": 60}
-MINIMUM_EVIDENCE = 2
+MASTERY_THRESHOLDS = {"strong": 86, "developing": 60}
+MINIMUM_EVIDENCE = 1
 ASSESSMENT_WEIGHTS = {
     "curiosity_quiz": 1.0,
     "assignment": 1.0,
@@ -23,14 +24,7 @@ def summarize_evidence(events: list[dict[str, Any]]) -> dict[str, Any]:
         evidence_id = str(event.get("_id") or event.get("id") or event.get("sourceSessionId"))
         unique[evidence_id] = event
 
-    weighted_score = 0.0
-    total_weight = 0.0
-    for event in unique.values():
-        weight = ASSESSMENT_WEIGHTS.get(event.get("activityType", ""), 1.0)
-        weighted_score += float(event["masteryScore"]) * weight
-        total_weight += weight
-
-    if not unique or total_weight == 0:
+    if not unique:
         return {
             "score": None,
             "state": "unknown",
@@ -39,7 +33,23 @@ def summarize_evidence(events: list[dict[str, Any]]) -> dict[str, Any]:
             "evidenceIds": [],
         }
 
-    score = round(weighted_score / total_weight)
+    # The latest valid evidence controls current state; older attempts remain counted.
+    def evidence_time(item: tuple[int, dict[str, Any]]) -> tuple[float, int]:
+        index, event = item
+        value = event.get("occurredAt") or event.get("createdAt")
+        try:
+            if isinstance(value, str):
+                value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if isinstance(value, datetime):
+                if value.tzinfo is None:
+                    value = value.replace(tzinfo=timezone.utc)
+                return value.timestamp(), index
+        except (ValueError, OverflowError):
+            pass
+        return float(index), index
+
+    latest = max(enumerate(unique.values()), key=evidence_time)[1]
+    score = round(float(latest["masteryScore"]))
     if len(unique) < MINIMUM_EVIDENCE:
         state = "provisional"
         confidence = "low"
@@ -81,13 +91,26 @@ def build_student_progress(
             topic_events = events_by_topic.get(str(topic["id"]), [])
             covered = any(event.get("coverage") is True for event in topic_events)
             covered_topics += int(covered)
-            mastery = summarize_evidence(topic_events)
+            mastery = summarize_evidence([
+                event for event in topic_events
+                if event.get("coverage") is True
+                and not (
+                    event.get("activityType") == "curiosity_quiz"
+                    and int(event.get("total", 0)) < 2
+                )
+            ])
             concepts = []
             for concept in topic.get("concepts", []):
-                concept_events = [
-                    event for event in topic_events
-                    if concept.get("name") in event.get("concepts", [])
-                ]
+                concept_events = []
+                for event in topic_events:
+                    result = event.get("conceptResults", {}).get(concept.get("name"))
+                    if not isinstance(result, dict) or result.get("total", 0) < 2:
+                        continue
+                    concept_events.append({
+                        **event,
+                        "_id": f"{event.get('_id') or event.get('id')}:{concept.get('name')}",
+                        "masteryScore": result.get("score"),
+                    })
                 concepts.append({**concept, "mastery": summarize_evidence(concept_events)})
             topic_result = {
                 "id": topic["id"],

@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os, re, secrets, uuid
+from threading import Timer
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
@@ -16,6 +17,7 @@ from pymongo.errors import OperationFailure, PyMongoError
 
 from models import (
     ClassroomAssessmentIn,
+    ClassroomCreateIn,
     ClassroomGradeIn,
     ClassroomPostIn,
     ClassroomReplyIn,
@@ -35,8 +37,9 @@ from llm import generate_curriculum, generate_lesson, generate_retest_quiz, refi
 from document_processor.service import DocumentProcessingService
 from document_processor.parser import EmptyDocumentError, UnsupportedDocumentError
 from mastery import build_classroom_analytics, build_student_progress
-from adaptive import build_adaptive_path
+from adaptive import build_adaptive_path, revision_task_specs
 from evaluation import evaluate_written_answer
+from assessment import AssessmentValidationError, grade_quiz
 
 load_dotenv()
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
@@ -62,6 +65,8 @@ SESSION_COOKIE_SECURE = (
     or any(origin.startswith("https://") for origin in FRONTEND_ORIGINS)
 )
 SESSION_COOKIE_SAMESITE = "none" if SESSION_COOKIE_SECURE else "lax"
+CLASSROOM_UNDO_SECONDS = 5
+_classroom_delete_timers: dict[str, Timer] = {}
 
 
 def session_cookie_settings():
@@ -230,6 +235,49 @@ def create_classroom(payload: dict, user: dict):
     return classroom_payload(classroom)
 
 
+def _purge_classroom_data(classroom_id: str):
+    for name in ("classroom_modules", "classroom_curriculum_topics", "classroom_assessments", "classroom_submissions", "classroom_posts", "classroom_replies", "learning_events", "learning_paths", "adaptive_tasks"):
+        getattr(db, name).delete_many({"classroomId": classroom_id})
+    db.classrooms.delete_one({"_id": classroom_id, "deletionState": "purging"})
+    _classroom_delete_timers.pop(classroom_id, None)
+
+
+def finalize_classroom_delete(classroom_id: str, token: str):
+    claim = db.classrooms.update_one(
+        {"_id": classroom_id, "deletionToken": token, "deletionState": "pending"},
+        {"$set": {"deletionState": "purging"}},
+    )
+    if claim.matched_count:
+        _purge_classroom_data(classroom_id)
+
+
+def _schedule_classroom_delete(classroom_id: str, token: str, delay: float = CLASSROOM_UNDO_SECONDS):
+    previous = _classroom_delete_timers.pop(classroom_id, None)
+    if previous:
+        previous.cancel()
+    timer = Timer(max(delay, 0.01), finalize_classroom_delete, args=(classroom_id, token))
+    timer.daemon = True
+    _classroom_delete_timers[classroom_id] = timer
+    timer.start()
+
+
+def _recover_classroom_deletions():
+    current_time = now()
+    for classroom in db.classrooms.find({"deletionState": "pending"}):
+        deadline = classroom.get("deleteUntil")
+        if not isinstance(deadline, datetime):
+            continue
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        token = classroom.get("deletionToken")
+        if not token:
+            continue
+        if deadline <= current_time:
+            finalize_classroom_delete(classroom["_id"], token)
+        elif classroom["_id"] not in _classroom_delete_timers:
+            _schedule_classroom_delete(classroom["_id"], token, (deadline - current_time).total_seconds())
+
+
 def delete_classroom(classroom_id: str, user: dict):
     classroom = db.classrooms.find_one({"_id": classroom_id})
     if not classroom:
@@ -237,16 +285,56 @@ def delete_classroom(classroom_id: str, user: dict):
     require_role(user, "ADMIN", "FACULTY", "STUDENT")
     if classroom.get("ownerId") != user["id"]:
         raise err(403, "forbidden", "Only the classroom owner can delete it.")
-    for name in ("classroom_modules", "classroom_curriculum_topics", "classroom_assessments", "classroom_submissions", "classroom_posts", "classroom_replies", "learning_events", "learning_paths"):
-        getattr(db, name).delete_many({"classroomId": classroom_id})
-    db.classrooms.delete_one({"_id": classroom_id})
-    return {"deleted": True, "id": classroom_id}
+    if classroom.get("deletionState") == "pending":
+        raise err(409, "deletion_pending", "This classroom is already waiting for deletion.")
+    token = uuid.uuid4().hex
+    delete_until = now() + timedelta(seconds=CLASSROOM_UNDO_SECONDS)
+    db.classrooms.update_one(
+        {"_id": classroom_id},
+        {"$set": {"deletionState": "pending", "deletionToken": token, "deleteUntil": delete_until}},
+    )
+    _schedule_classroom_delete(classroom_id, token)
+    return {"deleted": True, "id": classroom_id, "undoToken": token, "undoSeconds": CLASSROOM_UNDO_SECONDS}
+
+
+def undo_delete_classroom(classroom_id: str, token: str, user: dict):
+    classroom = db.classrooms.find_one({"_id": classroom_id, "deletionToken": token, "deletionState": "pending"})
+    if not classroom:
+        raise err(404, "undo_expired", "The undo period has ended or this classroom is no longer available.")
+    if classroom.get("ownerId") != user["id"]:
+        raise err(403, "forbidden", "Only the classroom owner can restore it.")
+    deadline = classroom.get("deleteUntil")
+    if isinstance(deadline, datetime) and deadline <= now():
+        finalize_classroom_delete(classroom_id, token)
+        raise err(410, "undo_expired", "The undo period has ended.")
+    restored = db.classrooms.update_one(
+        {"_id": classroom_id, "deletionToken": token, "deletionState": "pending"},
+        {"$set": {"deletionState": "active", "deletionToken": None, "deleteUntil": None, "updatedAt": now_iso()}},
+    )
+    if restored.matched_count == 0:
+        raise err(410, "undo_expired", "The undo period has ended.")
+    timer = _classroom_delete_timers.pop(classroom_id, None)
+    if timer:
+        timer.cancel()
+    return classroom_payload(db.classrooms.find_one({"_id": classroom_id}))
+
+
+def update_classroom(classroom_id: str, payload: dict, user: dict):
+    classroom = require_classroom_editor(classroom_id, user)
+    fields = {key: str(payload.get(key, "")).strip() for key in ("name", "subject", "section", "semester", "description")}
+    if not all(fields[key] for key in ("name", "subject", "section", "semester")):
+        raise err(400, "invalid_classroom", "Classroom name, subject, section, and semester are required.")
+    db.classrooms.update_one({"_id": classroom_id}, {"$set": {**fields, "updatedAt": now_iso()}})
+    return classroom_payload(db.classrooms.find_one({"_id": classroom_id}) or classroom)
 
 
 def list_classrooms(user: dict):
     role = require_role(user, "ADMIN", "FACULTY", "STUDENT")
+    _recover_classroom_deletions()
     result = []
     for row in db.classrooms.find({}):
+        if row.get("deletionState") == "pending":
+            continue
         if role == "ADMIN" or row.get("ownerId") == user["id"] or any(m.get("userId") == user["id"] for m in row.get("members", [])):
             item = classroom_payload(row)
             if not _classroom_editor(row, user):
@@ -257,7 +345,7 @@ def list_classrooms(user: dict):
 
 def get_classroom(classroom_id: str, user: dict):
     classroom = db.classrooms.find_one({"_id": classroom_id})
-    if not classroom:
+    if not classroom or classroom.get("deletionState") == "pending":
         raise err(404, "not_found", "Classroom not found.")
     role = require_role(user, "ADMIN", "FACULTY", "STUDENT")
     member = any(m.get("userId") == user["id"] for m in classroom.get("members", []))
@@ -271,7 +359,7 @@ def get_classroom(classroom_id: str, user: dict):
 
 def require_classroom_editor(classroom_id: str, user: dict):
     classroom = db.classrooms.find_one({"_id": classroom_id})
-    if not classroom:
+    if not classroom or classroom.get("deletionState") == "pending":
         raise err(404, "not_found", "Classroom not found.")
     require_role(user, "ADMIN", "FACULTY", "STUDENT")
     if not _classroom_editor(classroom, user):
@@ -421,14 +509,406 @@ def render_classroom_learning_prompt(content: str, classroom: dict, module: dict
         f"Classroom: {classroom['name']} ({classroom.get('subject', '')})\nModule: {module.get('title', '')}\nOfficial topic: {topic['title']}\nTopic description: {topic.get('description', '')}\nLearning objectives:\n{objectives}\nExpected concepts:\n{concepts}\nPrerequisites:\n{prerequisites}\nTeacher materials:\n{materials}\n\nStudent adaptive state:\n{state}\n\nStudent request: {content}\nStart lesson")
 
 
+def _revision_task_id(classroom_id: str, user_id: str, topic_id: str, concept_ids: list[str]) -> str:
+    scope = ":".join([classroom_id, user_id, topic_id, *sorted(concept_ids)])
+    return "adaptive_task_" + hashlib.sha256(scope.encode("utf-8")).hexdigest()[:24]
+
+
+def _classroom_revision_tasks(classroom_id: str, user_id: str) -> list[dict]:
+    tasks = []
+    for row in db.adaptive_tasks.find({"classroomId": classroom_id, "userId": user_id}):
+        task = dict(row)
+        task["id"] = str(task.get("id") or task.get("_id", ""))
+        task.pop("generationToken", None)
+        tasks.append(task)
+    return tasks
+
+
+def _revision_prompt(task: dict, classroom: dict, topic: dict) -> str:
+    concepts = [item for item in topic.get("concepts", []) if item.get("name") in task.get("conceptIds", [])]
+    materials = [str(item.get("content") or item.get("url") or "") for item in topic.get("materials", [])]
+    return (
+        "Create a focused revision lesson, not an official curriculum edit. Use only the supplied published materials. "
+        "Address recorded missed questions without revealing test answers as hints.\n"
+        f"Classroom: {classroom.get('name', '')}\nTopic: {topic.get('title', '')}\n"
+        f"Objectives: {topic.get('learningObjectives', [])}\nTarget concepts: {concepts or 'Not reliably mapped; revise this topic generally.'}\n"
+        f"Approved materials: {materials}\nMissed questions: {task.get('weakQuestionTexts', [])}\n"
+        f"Official concept identifiers: {task.get('conceptIds', [])}"
+    )
+
+
+def _generate_revision_content(task: dict, classroom: dict, topic: dict) -> dict:
+    lesson = generate_lesson(
+        _revision_prompt(task, classroom, topic),
+        task.get("difficulty", "beginner"),
+        task.get("provider", "groq"),
+        task.get("model", "qwen/qwen3.8-27b"),
+    )
+    data = lesson.model_dump()
+    return {
+        "topic": data["topic"],
+        "explanation": data["explanation"],
+        "flashcards": data["flashcards"],
+        "blocks": data.get("blocks", []),
+    }
+
+
+def _prepare_revision_task(task_id: str, task: dict, classroom: dict, topic: dict) -> dict:
+    claim_token = uuid.uuid4().hex
+    claim = db.adaptive_tasks.update_one(
+        {"_id": task_id, "generationStatus": {"$ne": "generating"}},
+        {"$set": {
+            "status": "pending",
+            "generationStatus": "generating",
+            "generationToken": claim_token,
+            "generationStartedAt": now(),
+            "updatedAt": now(),
+        }},
+    )
+    if claim.matched_count == 0:
+        existing = db.adaptive_tasks.find_one({"_id": task_id}) or task
+        existing.pop("generationToken", None)
+        return existing
+    try:
+        content = _generate_revision_content(task, classroom, topic)
+        db.adaptive_tasks.update_one(
+            {"_id": task_id, "generationToken": claim_token},
+            {"$set": {"status": "ready", "generationStatus": "ready", "revisionContent": content, "generationToken": None, "updatedAt": now()}},
+        )
+    except LLMError as exc:
+        db.adaptive_tasks.update_one(
+            {"_id": task_id, "generationToken": claim_token},
+            {"$set": {"status": "failed", "generationStatus": "failed", "generationError": exc.code, "generationToken": None, "updatedAt": now()}},
+        )
+    except Exception:
+        db.adaptive_tasks.update_one(
+            {"_id": task_id, "generationToken": claim_token},
+            {"$set": {"status": "failed", "generationStatus": "failed", "generationError": "generation_failed", "generationToken": None, "updatedAt": now()}},
+        )
+    result = db.adaptive_tasks.find_one({"_id": task_id}) or task
+    result.pop("generationToken", None)
+    return result
+
+
+def _orchestrate_classroom_assessment(session: dict, event: dict, user: dict) -> list[dict]:
+    classroom_id = session["classroomId"]
+    topic_id = session["curriculumTopicId"]
+    classroom, _, topic = classroom_topic_learning_context(classroom_id, topic_id, user)
+    prepared: list[dict] = []
+    adaptive_task_id = session.get("adaptiveTaskId")
+    active_for_topic = db.adaptive_tasks.find({
+        "classroomId": classroom_id,
+        "userId": user["id"],
+        "topicId": topic_id,
+        "status": {"$in": ["pending", "ready", "failed", "revision_complete", "generating_retest", "retest_available"]},
+    })
+    for active_task in active_for_topic:
+        if active_task.get("_id") == adaptive_task_id:
+            continue
+        concept_results = event.get("conceptResults", {})
+        covered = all(
+            concept in concept_results
+            and concept_results[concept]["total"] >= 2
+            and concept_results[concept]["score"] > 85
+            for concept in active_task.get("conceptIds", [])
+        ) if active_task.get("conceptIds") else event["total"] >= 2 and event["masteryScore"] > 85
+        if covered:
+            history = list(active_task.get("attemptHistory", []))
+            if not any(item.get("eventId") == event["_id"] for item in history):
+                history.append({"eventId": event["_id"], "score": event["masteryScore"], "occurredAt": event["occurredAt"]})
+            db.adaptive_tasks.update_one(
+                {"_id": active_task["_id"], "userId": user["id"]},
+                {"$set": {"status": "mastered", "generationStatus": "complete", "masteredAt": now(), "updatedAt": now(), "lastRetestScore": event["masteryScore"], "attemptHistory": history}},
+            )
+    if adaptive_task_id:
+        task = db.adaptive_tasks.find_one({"_id": adaptive_task_id, "classroomId": classroom_id, "userId": user["id"]})
+        if task:
+            attempt_history = list(task.get("attemptHistory", []))
+            if not any(item.get("eventId") == event["_id"] for item in attempt_history):
+                attempt_history.append({"eventId": event["_id"], "score": event["masteryScore"], "occurredAt": event["occurredAt"]})
+            concept_results = event.get("conceptResults", {})
+            passed = all(
+                concept in concept_results
+                and concept_results[concept]["total"] >= 2
+                and concept_results[concept]["score"] > 85
+                for concept in task.get("conceptIds", [])
+            ) if task.get("conceptIds") else event["total"] >= 2 and event["masteryScore"] > 85
+            if passed:
+                db.adaptive_tasks.update_one(
+                    {"_id": adaptive_task_id},
+                    {"$set": {"status": "mastered", "generationStatus": "complete", "masteredAt": now(), "updatedAt": now(), "lastRetestScore": event["masteryScore"], "attemptHistory": attempt_history}},
+                )
+            else:
+                db.adaptive_tasks.update_one(
+                    {"_id": adaptive_task_id},
+                    {"$set": {"status": "pending", "generationStatus": "pending", "lastRetestScore": event["masteryScore"], "updatedAt": now(), "attemptHistory": attempt_history}},
+                )
+                task = db.adaptive_tasks.find_one({"_id": adaptive_task_id}) or task
+                prepared.append(_prepare_revision_task(adaptive_task_id, task, classroom, topic))
+
+    if not adaptive_task_id or (event["incorrect"] > 0 and not prepared):
+        for spec in revision_task_specs(event["questionResults"], topic):
+            task_id = _revision_task_id(classroom_id, user["id"], topic_id, spec["conceptIds"])
+            weak_texts = [
+                question.get("question", "")
+                for question in session.get("learningContent", {}).get("quiz", [])
+                if question.get("id") in spec["weakQuestionIds"]
+            ]
+            existing_task = db.adaptive_tasks.find_one({"_id": task_id}) or {}
+            attempt_history = list(existing_task.get("attemptHistory", []))
+            if not any(item.get("eventId") == event["_id"] for item in attempt_history):
+                attempt_history.append({"eventId": event["_id"], "score": event["masteryScore"], "occurredAt": event["occurredAt"]})
+            weak_question_texts = list(existing_task.get("weakQuestionTexts", []))
+            weak_question_texts.extend(value for value in weak_texts if value and value not in weak_question_texts)
+            if existing_task.get("generationStatus") == "generating":
+                db.adaptive_tasks.update_one(
+                    {"_id": task_id},
+                    {"$set": {"attemptHistory": attempt_history, "weakQuestionTexts": weak_question_texts, "updatedAt": now()}},
+                )
+                result = db.adaptive_tasks.find_one({"_id": task_id}) or existing_task
+                result.pop("generationToken", None)
+                prepared.append(result)
+                continue
+            task = {
+                **existing_task,
+                **spec,
+                "_id": task_id,
+                "id": task_id,
+                "classroomId": classroom_id,
+                "userId": user["id"],
+                "moduleId": session.get("curriculumModuleId"),
+                "sourceSessionId": session["_id"],
+                "sourceEventId": event["_id"],
+                "weakQuestionTexts": weak_question_texts,
+                "status": "ready" if existing_task.get("revisionContent") else "pending",
+                "generationStatus": "ready" if existing_task.get("revisionContent") else "pending",
+                "difficulty": session.get("difficulty", "beginner"),
+                "provider": session.get("provider", "groq"),
+                "model": session.get("model", "qwen/qwen3.8-27b"),
+                "updatedAt": now(),
+            }
+            task.setdefault("createdAt", now())
+            task["attemptHistory"] = attempt_history
+            db.adaptive_tasks.update_one({"_id": task_id}, {"$set": task}, upsert=True)
+            if existing_task.get("revisionContent"):
+                task.pop("generationToken", None)
+                prepared.append(task)
+            else:
+                prepared.append(_prepare_revision_task(task_id, task, classroom, topic))
+    return prepared
+
+
 def classroom_progress(classroom_id: str, user: dict):
     curriculum = get_classroom_curriculum(classroom_id, user)
     events = [e for e in db.learning_events.find({"classroomId": classroom_id}) if e.get("userId") == user["id"]]
+    revision_tasks = _classroom_revision_tasks(classroom_id, user["id"])
     progress = build_student_progress(curriculum["modules"], events)
-    path = build_adaptive_path(curriculum["modules"], events)
+    path = build_adaptive_path(curriculum["modules"], events, revision_tasks)
     db.learning_paths.update_one({"_id": f"learning_path_{classroom_id}_{user['id']}", "classroomId": classroom_id, "userId": user["id"]}, {"$set": {"classroomId": classroom_id, "userId": user["id"], "path": path, "updatedAt": now()}}, upsert=True)
     progress["learningPath"] = path
+    progress["revisionTasks"] = path["revisionTasks"]
+    progress["revisionHistory"] = revision_tasks
     return progress
+
+
+def classroom_topic_sessions(classroom_id: str, topic_id: str, user: dict):
+    classroom_topic_learning_context(classroom_id, topic_id, user)
+    rows = list(db.sessions.find(
+        {
+            "userId": user["id"],
+            "classroomId": classroom_id,
+            "curriculumTopicId": topic_id,
+        },
+        {"learningContent": 0, "input": 0, "answers": 0},
+    ))
+    rows.sort(key=lambda row: row.get("createdAt") or "", reverse=True)
+    return [
+        {
+            "id": row["_id"],
+            "topic": row.get("topic", ""),
+            "difficulty": row.get("difficulty", "beginner"),
+            "createdAt": row.get("createdAt"),
+            "evaluation": row.get("evaluation", {"completed": False}),
+            "search": row.get("classroomSearch", row.get("topic", "")),
+        }
+        for row in rows
+    ]
+
+
+def generate_adaptive_revision(classroom_id: str, task_id: str, user: dict):
+    require_role(user, "STUDENT")
+    get_classroom(classroom_id, user)
+    task = db.adaptive_tasks.find_one({"_id": task_id, "classroomId": classroom_id, "userId": user["id"]})
+    if not task:
+        raise err(404, "not_found", "Revision task not found.")
+    if task.get("status") == "mastered":
+        raise err(409, "revision_complete", "This revision task is already mastered.")
+    if task.get("revisionContent") and task.get("generationStatus") == "ready":
+        return task
+    started_at = task.get("generationStartedAt")
+    if task.get("generationStatus") == "generating" and isinstance(started_at, datetime):
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        if started_at < now() - timedelta(minutes=2):
+            db.adaptive_tasks.update_one(
+                {"_id": task_id, "generationToken": task.get("generationToken")},
+                {"$set": {"generationStatus": "failed", "status": "failed", "generationError": "generation_interrupted", "generationToken": None, "updatedAt": now()}},
+            )
+            task = db.adaptive_tasks.find_one({"_id": task_id}) or task
+        else:
+            task.pop("generationToken", None)
+            return task
+    _, _, topic = classroom_topic_learning_context(classroom_id, task["topicId"], user)
+    classroom = db.classrooms.find_one({"_id": classroom_id})
+    db.adaptive_tasks.update_one({"_id": task_id}, {"$set": {"status": "pending", "generationStatus": "pending", "updatedAt": now()}})
+    return _prepare_revision_task(task_id, task, classroom, topic)
+
+
+def complete_adaptive_revision(classroom_id: str, task_id: str, user: dict):
+    require_role(user, "STUDENT")
+    get_classroom(classroom_id, user)
+    task = db.adaptive_tasks.find_one({"_id": task_id, "classroomId": classroom_id, "userId": user["id"]})
+    if not task or task.get("status") == "mastered":
+        raise err(404, "not_found", "Active revision task not found.")
+    if task.get("generationStatus") != "ready" or not task.get("revisionContent"):
+        raise err(409, "revision_not_ready", "Revision content must be available before it can be completed.")
+    db.adaptive_tasks.update_one(
+        {"_id": task_id, "classroomId": classroom_id, "userId": user["id"]},
+        {"$set": {"status": "revision_complete", "revisionCompletedAt": now(), "updatedAt": now()}},
+    )
+    return db.adaptive_tasks.find_one({"_id": task_id}) or task
+
+
+def create_adaptive_retest(classroom_id: str, task_id: str, user: dict):
+    require_role(user, "STUDENT")
+    get_classroom(classroom_id, user)
+    task = db.adaptive_tasks.find_one({"_id": task_id, "classroomId": classroom_id, "userId": user["id"]})
+    if not task or task.get("status") == "mastered":
+        raise err(404, "not_found", "Active revision task not found.")
+    if task.get("status") == "retest_available" and task.get("currentSessionId"):
+        active_session = db.sessions.find_one({
+            "_id": task["currentSessionId"],
+            "userId": user["id"],
+            "adaptiveTaskId": task_id,
+            "evaluation.completed": {"$ne": True},
+        })
+        if active_session:
+            return {
+                "sessionId": active_session["_id"],
+                "learningContent": active_session["learningContent"],
+                "taskId": task_id,
+                "idempotent": True,
+            }
+    if task.get("status") == "generating_retest":
+        started_at = task.get("retestGenerationStartedAt")
+        if isinstance(started_at, datetime):
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+            if started_at >= now() - timedelta(minutes=2):
+                raise err(409, "retest_preparing", "A fresh retest is already being prepared.")
+            db.adaptive_tasks.update_one(
+                {"_id": task_id, "status": "generating_retest", "retestGenerationStartedAt": task.get("retestGenerationStartedAt")},
+                {"$set": {"status": "revision_complete", "retestGenerationError": "generation_interrupted", "updatedAt": now()}},
+            )
+            task = db.adaptive_tasks.find_one({"_id": task_id}) or task
+    if task.get("status") != "revision_complete":
+        raise err(409, "revision_incomplete", "Complete the targeted revision before starting its retest.")
+    if task.get("generationStatus") != "ready" or not task.get("revisionContent"):
+        raise err(409, "revision_not_ready", "Revision content must be available before the retest.")
+    attempt_number = int(task.get("retestAttempt", 0)) + 1
+    session_id = "session_adaptive_" + hashlib.sha256(
+        f"{task_id}:{attempt_number}".encode("utf-8")
+    ).hexdigest()[:16]
+    prior_attempt = db.sessions.find_one({"_id": session_id, "userId": user["id"]})
+    if prior_attempt:
+        db.adaptive_tasks.update_one(
+            {"_id": task_id},
+            {"$set": {"status": "retest_available", "currentSessionId": session_id, "retestAttempt": attempt_number, "updatedAt": now()}},
+        )
+        return {"sessionId": session_id, "learningContent": prior_attempt["learningContent"], "taskId": task_id, "idempotent": True}
+    claim = db.adaptive_tasks.update_one(
+        {"_id": task_id, "classroomId": classroom_id, "userId": user["id"], "status": "revision_complete"},
+        {"$set": {"status": "generating_retest", "retestGenerationStartedAt": now(), "retestGenerationAttempt": attempt_number, "updatedAt": now()}},
+    )
+    if claim.matched_count == 0:
+        current = db.adaptive_tasks.find_one({"_id": task_id}) or task
+        if current.get("status") == "retest_available" and current.get("currentSessionId"):
+            active = db.sessions.find_one({"_id": current["currentSessionId"], "userId": user["id"], "adaptiveTaskId": task_id})
+            if active:
+                return {"sessionId": active["_id"], "learningContent": active["learningContent"], "taskId": task_id, "idempotent": True}
+        raise err(409, "retest_preparing", "A fresh retest is already being prepared.")
+    existing = list(db.sessions.find({"userId": user["id"], "adaptiveTaskId": task_id}))
+    existing_questions = [
+        question.get("question", "")
+        for session_record in existing
+        for question in session_record.get("learningContent", {}).get("quiz", [])
+    ]
+    _, _, topic = classroom_topic_learning_context(classroom_id, task["topicId"], user)
+    classroom = db.classrooms.find_one({"_id": classroom_id})
+    prompt = _revision_prompt(task, classroom, topic)
+    try:
+        quiz = generate_retest_quiz(
+            prompt,
+            existing_questions,
+            task.get("provider", "groq"),
+            task.get("model", "qwen/qwen3.8-27b"),
+        )
+    except LLMError as exc:
+        db.adaptive_tasks.update_one(
+            {"_id": task_id, "status": "generating_retest", "retestGenerationAttempt": attempt_number},
+            {"$set": {"status": "revision_complete", "retestGenerationError": exc.code, "updatedAt": now()}},
+        )
+        raise err(504 if exc.code == "timeout" else 502, exc.code, exc.message)
+    except Exception as exc:
+        db.adaptive_tasks.update_one(
+            {"_id": task_id, "status": "generating_retest", "retestGenerationAttempt": attempt_number},
+            {"$set": {"status": "revision_complete", "retestGenerationError": "generation_failed", "updatedAt": now()}},
+        )
+        logger.exception("Adaptive retest generation failed for task %s", task_id)
+        raise err(502, "llm_failed", "The retest could not be generated. Retry when the provider is available.") from exc
+    duplicate_text = {question.lower().strip() for question in existing_questions}
+    if any(question.question.lower().strip() in duplicate_text for question in quiz):
+        db.adaptive_tasks.update_one(
+            {"_id": task_id, "status": "generating_retest", "retestGenerationAttempt": attempt_number},
+            {"$set": {"status": "revision_complete", "retestGenerationError": "duplicate_questions", "updatedAt": now()}},
+        )
+        raise err(502, "bad_schema", "The generated retest repeated an earlier question. Retry to generate a fresh set.")
+    concept_ids = task.get("conceptIds", [])
+    lesson = {
+        **task["revisionContent"],
+        "quiz": [
+            {
+                **question.model_dump(),
+                "id": f"adaptive-{uuid.uuid4().hex[:10]}-{index}",
+                "conceptIds": [concept for concept in question.conceptIds if concept in concept_ids],
+            }
+            for index, question in enumerate(quiz, start=1)
+        ],
+    }
+    db.sessions.insert_one({
+        "_id": session_id,
+        "userId": user["id"],
+        "topicId": user_topic_id("classroom_" + task["topicId"], user["id"]),
+        "topic": topic["title"],
+        "source": "adaptive_retest",
+        "difficulty": task.get("difficulty", "beginner"),
+        "provider": task.get("provider", "groq"),
+        "model": task.get("model", "qwen/qwen3.8-27b"),
+        "classroomId": classroom_id,
+        "curriculumTopicId": task["topicId"],
+        "curriculumModuleId": task.get("moduleId"),
+        "concepts": concept_ids,
+        "adaptiveTaskId": task_id,
+        "adaptiveAttempt": attempt_number,
+        "learningContent": lesson,
+        "evaluation": {"completed": False},
+        "createdAt": now(),
+    })
+    db.adaptive_tasks.update_one(
+        {"_id": task_id, "status": "generating_retest", "retestGenerationAttempt": attempt_number},
+        {"$set": {"status": "retest_available", "currentSessionId": session_id, "retestAttempt": attempt_number, "updatedAt": now()}},
+    )
+    return {"sessionId": session_id, "learningContent": lesson, "taskId": task_id}
 
 
 def classroom_analytics(classroom_id: str, user: dict):
@@ -576,6 +1056,109 @@ def create_classroom_assessment(classroom_id: str, payload: ClassroomAssessmentI
     return {**{k: v for k, v in assessment.items() if k != "_id"}, "id": assessment["_id"]}
 
 
+def _record_written_assessment_evidence(
+    classroom_id: str,
+    assessment: dict,
+    submission: dict,
+    score: float,
+    concept_scores: dict[str, float],
+    activity_status: str,
+    user: dict,
+):
+    topic_id = assessment.get("topicId")
+    if not topic_id:
+        return
+    topic = db.classroom_curriculum_topics.find_one({"_id": topic_id, "classroomId": classroom_id}) or {}
+    allowed = {str(item["name"]) for item in topic.get("concepts", []) if item.get("name")}
+    scoped = [value for value in assessment.get("conceptIds", []) if value in allowed]
+    if concept_scores:
+        scoped = [value for value in concept_scores if value in allowed]
+    concept_results = {}
+    question_results = []
+    weak_concepts = []
+    for concept in scoped:
+        percent = float(concept_scores.get(concept, score / assessment["maxMarks"] * 100))
+        passed = percent > 85
+        concept_results[concept] = {
+            "correct": int(passed),
+            "incorrect": int(not passed),
+            "unanswered": 0,
+            "total": 1,
+            "score": round(percent),
+        }
+        question_id = f"{submission['_id']}:{concept}"
+        question_results.append({
+            "questionId": question_id,
+            "correct": passed,
+            "unanswered": False,
+            "concepts": [concept],
+        })
+        if not passed:
+            weak_concepts.append(concept)
+    if not scoped:
+        question_results.append({
+            "questionId": submission["_id"],
+            "correct": score / assessment["maxMarks"] * 100 > 85,
+            "unanswered": False,
+            "concepts": [],
+        })
+    event_id = f"learning_event_submission_{submission['_id']}"
+    event = {
+        "userId": submission["studentId"],
+        "classroomId": classroom_id,
+        "moduleId": topic.get("moduleId"),
+        "topicId": topic_id,
+        "concepts": scoped,
+        "conceptResults": concept_results,
+        "questionResults": question_results,
+        "mappingStatus": "mapped" if scoped else "insufficient",
+        "activityType": assessment["kind"],
+        "evidenceType": "assessment",
+        "sourceSubmissionId": submission["_id"],
+        "score": score,
+        "maxScore": assessment["maxMarks"],
+        "masteryScore": round(score / assessment["maxMarks"] * 100),
+        "coverage": False,
+        "total": 1,
+        "correct": int(score / assessment["maxMarks"] * 100 > 85),
+        "incorrect": int(score / assessment["maxMarks"] * 100 <= 85),
+        "unanswered": 0,
+        "attempt": 1,
+        "evaluationStatus": activity_status,
+        "occurredAt": now(),
+    }
+    db.learning_events.update_one(
+        {"_id": event_id},
+        {"$set": event, "$setOnInsert": {"createdAt": now()}},
+        upsert=True,
+    )
+    if event["incorrect"] or weak_concepts:
+        student_record = db.users.find_one({"_id": submission["studentId"]}) or {}
+        student_user = {
+            "id": submission["studentId"],
+            "name": student_record.get("name", "Student"),
+            "email": student_record.get("email", ""),
+            "role": normalize_role(student_record.get("role")),
+        }
+        session = {
+            "_id": submission["_id"],
+            "userId": submission["studentId"],
+            "classroomId": classroom_id,
+            "curriculumTopicId": topic_id,
+            "curriculumModuleId": topic.get("moduleId"),
+            "learningContent": {
+                "quiz": [
+                    {"id": item["questionId"], "question": f"{assessment['title']}: {assessment.get('instructions', '')}"}
+                    for item in question_results
+                ]
+            },
+            "difficulty": "beginner",
+            "provider": os.getenv("EVALUATION_PROVIDER", "groq"),
+            "model": os.getenv("EVALUATION_MODEL") or "qwen/qwen3.8-27b",
+        }
+        _orchestrate_classroom_assessment(session, {"_id": event_id, **event}, student_user)
+
+
 def list_classroom_assessments(classroom_id: str, user: dict):
     classroom = get_classroom(classroom_id, user)
     rows = list(db.classroom_assessments.find({"classroomId": classroom_id}))
@@ -622,10 +1205,10 @@ def grade_classroom_submission(classroom_id: str, assessment_id: str, submission
         raise err(404, "not_found", "Assessment submission not found.")
     if payload.score > assessment["maxMarks"]:
         raise err(400, "invalid_score", "Score cannot exceed the assessment maximum marks.")
-    topic = db.classroom_curriculum_topics.find_one({"_id": assessment.get("topicId"), "classroomId": classroom_id}) or {}
     db.classroom_submissions.update_one({"_id": submission_id}, {"$set": {"score": payload.score, "feedback": payload.feedback.strip(), "released": payload.release, "status": "graded", "evaluationStatus": "faculty_graded", "gradedBy": user["id"], "gradedAt": now()}})
-    if assessment.get("topicId"):
-        db.learning_events.update_one({"_id": f"learning_event_submission_{submission_id}"}, {"$set": {"userId": submission["studentId"], "classroomId": classroom_id, "moduleId": topic.get("moduleId"), "topicId": assessment["topicId"], "concepts": assessment.get("conceptIds", []), "activityType": assessment["kind"], "evidenceType": "assessment", "sourceSubmissionId": submission_id, "score": payload.score, "maxScore": assessment["maxMarks"], "masteryScore": round(payload.score / assessment["maxMarks"] * 100), "coverage": True, "attempt": 1, "evaluationStatus": "faculty_graded", "occurredAt": now()}, "$setOnInsert": {"createdAt": now()}}, upsert=True)
+    _record_written_assessment_evidence(
+        classroom_id, assessment, submission, payload.score, {}, "faculty_graded", user
+    )
     return {"id": submission_id, "score": payload.score, "released": payload.release}
 
 
@@ -643,8 +1226,15 @@ def evaluate_classroom_submission(classroom_id: str, assessment_id: str, submiss
     except LLMError as exc:
         raise err(504 if exc.code == "timeout" else 502, exc.code, exc.message)
     db.classroom_submissions.update_one({"_id": submission_id}, {"$set": {"aiEvaluation": result, "aiEvaluatedAt": now(), "evaluationStatus": "ai_evaluated"}})
-    if assessment.get("topicId"):
-        db.learning_events.update_one({"_id": f"learning_event_submission_{submission_id}"}, {"$set": {"userId": submission["studentId"], "classroomId": classroom_id, "moduleId": topic.get("moduleId"), "topicId": assessment["topicId"], "concepts": list(result["conceptScores"]), "activityType": assessment["kind"], "evidenceType": "ai_evaluated_assessment", "sourceSubmissionId": submission_id, "score": result["score"], "maxScore": assessment["maxMarks"], "masteryScore": round(result["score"] / assessment["maxMarks"] * 100), "conceptScores": result["conceptScores"], "coverage": True, "attempt": 1, "evaluationStatus": "complete", "occurredAt": now()}, "$setOnInsert": {"createdAt": now()}}, upsert=True)
+    _record_written_assessment_evidence(
+        classroom_id,
+        assessment,
+        submission,
+        result["score"],
+        result["conceptScores"],
+        "complete",
+        user,
+    )
     return result
 
 
@@ -1026,9 +1616,38 @@ def learn_stream(body: LearnIn, user: dict = Depends(current_user)):
                 classroom, module, topic = classroom_topic_learning_context(
                     body.classroomId, body.curriculumTopicId, user
                 )
-                prompt = render_classroom_learning_prompt(
-                    body.content, classroom, module, topic
+                curriculum = get_classroom_curriculum(body.classroomId, user)
+                student_events = [
+                    event for event in db.learning_events.find({"classroomId": body.classroomId})
+                    if event.get("userId") == user["id"]
+                ]
+                student_tasks = _classroom_revision_tasks(body.classroomId, user["id"])
+                adaptive_path = build_adaptive_path(curriculum["modules"], student_events, student_tasks)
+                selected_path_item = next(
+                    (item for item in adaptive_path["items"] if item["topicId"] == topic["_id"]),
+                    None,
                 )
+                if not selected_path_item:
+                    raise err(404, "not_found", "Topic is not available in the published learning path.")
+                if selected_path_item["status"] == "locked":
+                    raise err(409, "prerequisite_locked", selected_path_item["reason"])
+                prompt = render_classroom_learning_prompt(
+                    body.content, classroom, module, topic,
+                    {"recommendation": selected_path_item},
+                )
+                active_topic_tasks = [
+                    task for task in student_tasks
+                    if task.get("topicId") == topic["_id"]
+                    and task.get("status") in {"pending", "ready", "failed", "revision_complete", "generating_retest", "retest_available"}
+                ]
+                prompt += "\nOfficial quiz concept identifiers (exact names only): " + json.dumps(
+                    [item["name"] for item in topic.get("concepts", [])]
+                )
+                if active_topic_tasks:
+                    prompt += "\nTargeted learner revision context (summary only): " + json.dumps([
+                        {"concepts": task.get("conceptIds", []), "status": task.get("status"), "missedQuestions": task.get("weakQuestionTexts", [])[:3]}
+                        for task in active_topic_tasks[:5]
+                    ])
             lesson = generate_lesson(prompt, body.difficulty, body.provider, body.model)
             yield 'data: {"stage":"building"}\n\n'
             sid = f"session_{uuid.uuid4().hex[:12]}"
@@ -1037,6 +1656,13 @@ def learn_stream(body: LearnIn, user: dict = Depends(current_user)):
             ).strip("_")
             tid = user_topic_id(topic_key, user["id"])
             data = lesson.model_dump()
+            if topic:
+                allowed_concepts = {item["name"] for item in topic.get("concepts", [])}
+                for question in data.get("quiz", []):
+                    question["conceptIds"] = [
+                        concept for concept in question.get("conceptIds", [])
+                        if concept in allowed_concepts
+                    ]
             db.sessions.insert_one(
                 {
                     "_id": sid,
@@ -1052,6 +1678,7 @@ def learn_stream(body: LearnIn, user: dict = Depends(current_user)):
                         "curriculumTopicId": topic["_id"],
                         "curriculumModuleId": module.get("_id"),
                         "concepts": [item["name"] for item in topic.get("concepts", [])],
+                        "classroomSearch": body.content,
                     } if topic else {}),
                     "learningContent": data,
                     "evaluation": {"completed": False},
@@ -1104,49 +1731,106 @@ def complete(sid: str, body: CompleteIn, user: dict = Depends(current_user)):
     s = db.sessions.find_one({"_id": sid, "userId": user_id})
     if not s:
         raise err(404, "not_found", "Session not found.")
-    score = round(body.correct / body.total * 100)
+    if s.get("evaluation", {}).get("completed"):
+        if s.get("answers", {}) == body.answers:
+            if not s.get("classroomId") or s.get("orchestrationStatus") == "ready":
+                return {"evaluation": s["evaluation"], "topicProgress": s["evaluation"].get("score", 0), "stats": recompute_stats(user_id), "idempotent": True}
+        else:
+            raise err(409, "submission_exists", "This quiz attempt has already been completed.")
+
+    allowed_concepts = None
+    if s.get("classroomId") and s.get("curriculumTopicId"):
+        classroom, _, curriculum_topic = classroom_topic_learning_context(
+            s["classroomId"], s["curriculumTopicId"], user
+        )
+        allowed_concepts = {
+            str(concept["name"])
+            for concept in curriculum_topic.get("concepts", [])
+            if concept.get("name")
+        }
+        if classroom.get("curriculumStatus") != "published":
+            raise err(409, "curriculum_unavailable", "The curriculum topic is no longer published.")
+
+    try:
+        graded = grade_quiz(
+            s.get("learningContent", {}).get("quiz", []),
+            body.answers,
+            allowed_concepts,
+        )
+    except AssessmentValidationError as exc:
+        raise err(400, "invalid_assessment", str(exc))
+
+    score = graded["score"]
     ev = {
         "score": score,
-        "correct": body.correct,
-        "incorrect": body.incorrect,
-        "total": body.total,
+        "correct": graded["correct"],
+        "incorrect": graded["incorrect"],
+        "unanswered": graded["unanswered"],
+        "total": graded["total"],
         "completed": True,
     }
-    db.sessions.update_one(
-        {"_id": sid},
+    update = db.sessions.update_one(
+        {"_id": sid, "userId": user_id, "evaluation.completed": {"$ne": True}},
         {
             "$set": {
                 "evaluation": ev,
                 "answers": body.answers,
+                "questionResults": graded["questionResults"],
+                "conceptResults": graded["conceptResults"],
                 "cardsReviewed": body.cardsReviewed,
                 "completedAt": now(),
+                "orchestrationStatus": "pending" if s.get("classroomId") else "ready",
             }
         },
     )
+    if update.matched_count == 0:
+        current = db.sessions.find_one({"_id": sid, "userId": user_id}) or {}
+        if current.get("answers", {}) != body.answers or not current.get("evaluation", {}).get("completed"):
+            raise err(409, "submission_exists", "This quiz attempt has already been completed.")
+        s = current
+
+    adaptive_tasks = []
     if s.get("classroomId") and s.get("curriculumTopicId"):
+        mapped_concepts = sorted({concept for result in graded["questionResults"] for concept in result["concepts"]})
+        mapping_status = "mapped" if mapped_concepts else "insufficient"
+        coverage_complete = graded["total"] >= 2
+        event = {
+            "_id": f"learning_event_session_{sid}",
+            "userId": user_id,
+            "classroomId": s["classroomId"],
+            "moduleId": s.get("curriculumModuleId"),
+            "topicId": s["curriculumTopicId"],
+            "concepts": mapped_concepts,
+            "conceptResults": graded["conceptResults"],
+            "questionResults": graded["questionResults"],
+            "mappingStatus": mapping_status,
+            "activityType": "curiosity_quiz",
+            "evidenceType": "assessment",
+            "sourceSessionId": sid,
+            "score": score,
+            "maxScore": 100,
+            "masteryScore": score,
+            "coverage": coverage_complete,
+            "total": graded["total"],
+            "correct": graded["correct"],
+            "incorrect": graded["incorrect"],
+            "unanswered": graded["unanswered"],
+            "attempt": 1,
+            "evaluationStatus": "complete",
+            "occurredAt": now(),
+        }
         db.learning_events.update_one(
-            {"_id": f"learning_event_session_{sid}"},
+            {"_id": event["_id"]},
             {
-                "$set": {
-                    "userId": user_id,
-                    "classroomId": s["classroomId"],
-                    "moduleId": s.get("curriculumModuleId"),
-                    "topicId": s["curriculumTopicId"],
-                    "concepts": s.get("concepts", []),
-                    "activityType": "curiosity_quiz",
-                    "evidenceType": "assessment",
-                    "sourceSessionId": sid,
-                    "score": score,
-                    "maxScore": 100,
-                    "masteryScore": score,
-                    "coverage": True,
-                    "attempt": 1,
-                    "evaluationStatus": "complete",
-                    "occurredAt": now(),
-                },
+                "$set": {key: value for key, value in event.items() if key != "_id"},
                 "$setOnInsert": {"createdAt": now()},
             },
             upsert=True,
+        )
+        adaptive_tasks = _orchestrate_classroom_assessment({**s, "_id": sid}, event, user)
+        db.sessions.update_one(
+            {"_id": sid, "userId": user_id},
+            {"$set": {"orchestrationStatus": "ready", "orchestratedAt": now()}},
         )
     done = list(
         db.sessions.find(
@@ -1168,7 +1852,7 @@ def complete(sid: str, body: CompleteIn, user: dict = Depends(current_user)):
             }
         },
     )
-    return {"evaluation": ev, "topicProgress": avg, "stats": recompute_stats(user_id)}
+    return {"evaluation": ev, "topicProgress": avg, "stats": recompute_stats(user_id), "adaptiveTasks": adaptive_tasks}
 
 
 @app.post("/api/topics/{tid}/retest")
@@ -1435,6 +2119,11 @@ def create_classroom_route(body: dict, user: dict = Depends(current_user)):
     return create_classroom(body, user)
 
 
+@app.patch("/api/classrooms/{classroom_id}")
+def update_classroom_route(classroom_id: str, body: ClassroomCreateIn, user: dict = Depends(current_user)):
+    return update_classroom(classroom_id, body.model_dump(), user)
+
+
 @app.post("/api/classrooms/join")
 def join_classroom_route(body: dict, user: dict = Depends(current_user)):
     return join_classroom(body, user)
@@ -1443,6 +2132,14 @@ def join_classroom_route(body: dict, user: dict = Depends(current_user)):
 @app.delete("/api/classrooms/{classroom_id}")
 def delete_classroom_route(classroom_id: str, user: dict = Depends(current_user)):
     return delete_classroom(classroom_id, user)
+
+
+@app.post("/api/classrooms/{classroom_id}/undo-delete")
+def undo_delete_classroom_route(classroom_id: str, body: dict, user: dict = Depends(current_user)):
+    token = str(body.get("undoToken", ""))
+    if not token:
+        raise err(400, "invalid_undo", "An undo token is required.")
+    return undo_delete_classroom(classroom_id, token, user)
 
 
 @app.get("/api/classrooms/{classroom_id}")
@@ -1463,6 +2160,26 @@ def publish_classroom_curriculum_route(classroom_id: str, user: dict = Depends(c
 @app.get("/api/classrooms/{classroom_id}/progress")
 def classroom_progress_route(classroom_id: str, user: dict = Depends(current_user)):
     return classroom_progress(classroom_id, user)
+
+
+@app.get("/api/classrooms/{classroom_id}/topics/{topic_id}/sessions")
+def classroom_topic_sessions_route(classroom_id: str, topic_id: str, user: dict = Depends(current_user)):
+    return classroom_topic_sessions(classroom_id, topic_id, user)
+
+
+@app.post("/api/classrooms/{classroom_id}/revision-tasks/{task_id}/generate")
+def generate_adaptive_revision_route(classroom_id: str, task_id: str, user: dict = Depends(current_user)):
+    return generate_adaptive_revision(classroom_id, task_id, user)
+
+
+@app.post("/api/classrooms/{classroom_id}/revision-tasks/{task_id}/complete")
+def complete_adaptive_revision_route(classroom_id: str, task_id: str, user: dict = Depends(current_user)):
+    return complete_adaptive_revision(classroom_id, task_id, user)
+
+
+@app.post("/api/classrooms/{classroom_id}/revision-tasks/{task_id}/retest")
+def create_adaptive_retest_route(classroom_id: str, task_id: str, user: dict = Depends(current_user)):
+    return create_adaptive_retest(classroom_id, task_id, user)
 
 
 @app.get("/api/classrooms/{classroom_id}/analytics")

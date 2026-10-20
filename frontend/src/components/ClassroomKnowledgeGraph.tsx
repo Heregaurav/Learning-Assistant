@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
+import { Canvas, ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { Maximize2, Minimize2, RotateCcw, RotateCw, X } from "lucide-react";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, forceZ } from "d3-force-3d";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { TrackballControls } from "three/examples/jsm/controls/TrackballControls.js";
 import { CanvasTexture, Quaternion, Vector3 } from "three";
 import { moduleColor, visibleGraph, type GraphLayout } from "../lib/knowledgeGraph";
 import type { ClassroomKnowledgeGraph, KnowledgeGraphEdge, KnowledgeGraphNode } from "../types";
@@ -166,6 +166,7 @@ export default function ClassroomKnowledgeGraph({ graph, selectedNodeId, onSelec
             <OrbitControlsScene resetRevision={cameraRevision} />
             <GraphScene nodes={data.nodes} edges={data.edges} positions={positions} selectedNodeId={selectedNodeId} hoveredNodeId={hoveredNodeId} activeModule={activeModule} onSelect={onSelect} onHover={setHoveredNodeId} />
           </Canvas>
+          <p className="pointer-events-none absolute right-3 top-3 rounded-md border border-white/10 bg-black/65 px-2 py-1 text-[10px] text-primary/70">Drag to freely rotate · scroll to zoom · right-drag to pan</p>
           {hoveredNode && <div className="pointer-events-none absolute bottom-3 left-3 max-w-[min(80%,420px)] rounded-lg border border-white/15 bg-black/90 px-3 py-2 text-xs text-primary backdrop-blur-sm"><span className="font-medium">{hoveredNode.label}</span><span className="ml-2 text-primary/80">{hoveredNode.moduleName}</span></div>}
         </div>
       )}
@@ -204,15 +205,17 @@ function MobileGraph({ nodes, selectedNodeId, onSelect }: { nodes: KnowledgeGrap
 
 function OrbitControlsScene({ resetRevision }: { resetRevision: number }) {
   const { camera, gl } = useThree();
-  const controlsRef = useRef<OrbitControls | null>(null);
+  const controlsRef = useRef<TrackballControls | null>(null);
+  useFrame(() => controlsRef.current?.update());
   useEffect(() => {
-    const controls = new OrbitControls(camera, gl.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.enablePan = true;
+    const controls = new TrackballControls(camera, gl.domElement);
+    controls.rotateSpeed = 2.2;
+    controls.zoomSpeed = 0.8;
+    controls.panSpeed = 0.7;
+    controls.staticMoving = false;
+    controls.dynamicDampingFactor = 0.12;
     controls.minDistance = 3;
     controls.maxDistance = 22;
-    controls.saveState();
     controlsRef.current = controls;
     return () => {
       controlsRef.current = null;

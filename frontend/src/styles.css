@@ -559,6 +559,11 @@ blockquote {
 .opt:hover:not(:disabled) {
   background: #efe9da;
 }
+.opt.selected {
+  border-color: var(--navy);
+  background: #efe9da;
+  box-shadow: inset 0 0 0 1px var(--navy);
+}
 .opt.ok {
   background: var(--ok);
   color: #fff;
@@ -1411,6 +1416,11 @@ blockquote {
   background: rgba(225, 224, 204, 0.14);
   transform: translateX(3px);
 }
+.prisma-auth-shell article .opt.selected {
+  border-color: #d6c99a;
+  background: rgba(225, 224, 204, 0.2);
+  box-shadow: inset 0 0 0 1px #d6c99a;
+}
 .prisma-auth-shell article .opt.ok {
   background: rgba(74, 160, 106, 0.72);
   border-color: #8bd19e;
@@ -1999,6 +2009,1065 @@ blockquote {
   .prisma-auth-shell .top .mobile-menu .profile-button > span:not(.profile-button-fallback),
   .prisma-auth-shell .top .mobile-menu .profile-button small {
     display: inline;
+  }
+}
+
+.prisma-auth-shell.is-dark {
+  --reader-text: #edf0ec;
+  --reader-muted: #c4ccc7;
+  --reader-panel: #1b2124;
+  --reader-border: #394347;
+  --reader-accent: #9bc8b7;
+  background: #121719;
+  color: #edf0ec;
+}
+.prisma-auth-shell.is-dark .prisma-auth-video,
+.prisma-auth-shell.is-dark .prisma-auth-noise,
+.prisma-auth-shell.is-dark .prisma-auth-gradient {
+  display: none;
+}
+.prisma-auth-shell.is-dark .prisma-auth-content {
+  background: linear-gradient(180deg, #121719 0%, #171d20 55%, #121719 100%);
+}
+.prisma-auth-shell.is-dark .top {
+  border-color: #394347;
+  background: rgba(27, 33, 36, 0.97);
+  color: #edf0ec;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+}
+.prisma-auth-shell.is-dark .top a,
+.prisma-auth-shell.is-dark .profile-button {
+  color: #e4e9e5;
+}
+.prisma-auth-shell.is-dark .top a.active {
+  border-color: #9bc8b7;
+  color: #c4e3d5;
+}
+.prisma-auth-shell.is-dark .profile-button small {
+  color: #aebbb5;
+}
+.prisma-auth-shell.is-dark .background-control {
+  border-color: #485458;
+  background: #242c2f;
+  color: #e0e7e2;
+}
+.prisma-auth-shell.is-dark .background-control:hover {
+  border-color: #8eaaa0;
+  background: #303a3e;
+  color: #f5f7f3;
+}
+.prisma-auth-shell.is-dark main {
+  color: #e6ebe7;
+}
+.prisma-auth-shell.is-dark main > article,
+.prisma-auth-shell.is-dark main article .panel,
+.prisma-auth-shell.is-dark main article .content-block,
+.prisma-auth-shell.is-dark main article .card {
+  border-color: #394347;
+  background: #1b2124;
+  color: #edf0ec;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.18);
+  backdrop-filter: none;
+}
+.prisma-auth-shell.is-dark main article :is(h1, h2, h3, h4, h5, h6, b, strong, summary) {
+  color: #f0f3ef;
+}
+.prisma-auth-shell.is-dark main article :is(p, li, blockquote, .lead) {
+  color: #c4ccc7;
+}
+.prisma-auth-shell.is-dark main article .row,
+.prisma-auth-shell.is-dark main article .list {
+  border-color: #394347;
+}
+.prisma-auth-shell.is-dark main article blockquote {
+  border-left-color: #85b6a2;
+  background: #252e31;
+}
+.prisma-auth-shell.is-dark main article .tabs {
+  border-color: #394347;
+  background: #222a2d;
+}
+.prisma-auth-shell.is-dark main article .tabs button {
+  color: #d0d8d3;
+}
+.prisma-auth-shell.is-dark main article .tabs button[aria-selected="true"] {
+  background: #3b6255;
+  color: #fff;
+}
+.prisma-auth-shell.is-dark main article :is(input, textarea, select) {
+  border-color: #526066;
+  background: #20282b;
+  color: #edf0ec;
+}
+.prisma-auth-shell.is-dark main article :is(input, textarea, select)::placeholder {
+  color: #aebbb5;
+}
+.prisma-auth-shell.is-dark main article .opt {
+  border-color: #526066;
+  background: #242d30;
+  color: #edf0ec;
+}
+.prisma-auth-shell.is-dark main article .opt:hover:not(:disabled) {
+  border-color: #95b6a8;
+  background: #2c3939;
+}
+.prisma-auth-shell.is-dark main article .opt.selected {
+  border-color: #9bc8b7;
+  background: #304941;
+  box-shadow: inset 0 0 0 1px #9bc8b7;
+}
+.prisma-auth-shell.is-dark main article a:not(.btn) {
+  color: #a9d6c4;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+.prisma-auth-shell.is-dark .learn-search h1 {
+  color: #f0f3ef;
+}
+.prisma-auth-shell.is-dark .learn-kicker,
+.prisma-auth-shell.is-dark main article .meta {
+  color: #b6c2bc;
+}
+.prisma-auth-shell.is-dark .learn-composer,
+.prisma-auth-shell.is-dark .learn-document-panel {
+  border-color: #394347;
+  background: #1b2124;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.22);
+}
+.prisma-auth-shell.is-dark .learn-composer textarea,
+.prisma-auth-shell.is-dark .learn-document-panel textarea {
+  color: #edf0ec;
+}
+.prisma-auth-shell.is-dark .learn-composer-tools {
+  border-top-color: #394347;
+}
+.prisma-auth-shell.is-dark .learn-submit,
+.prisma-auth-shell.is-dark .btn:not(.ghost) {
+  background: #9bc8b7;
+  color: #15201c;
+}
+.prisma-auth-shell.is-dark .learn-submit:hover,
+.prisma-auth-shell.is-dark .btn:not(.ghost):hover {
+  background: #b2d9ca;
+}
+.prisma-auth-shell.is-dark .learn-suggestion {
+  border-color: #394347;
+  background: #1b2427;
+  color: #edf0ec;
+}
+.prisma-auth-shell.is-dark .learn-suggestion-primary {
+  background: #29443f;
+}
+.prisma-auth-shell.is-dark .learn-suggestion span {
+  color: #c4ccc7;
+}
+.prisma-auth-shell.is-dark .classroom-page,
+.prisma-auth-shell.is-dark .classrooms-page {
+  color: #e6ebe7;
+}
+.prisma-auth-shell.is-dark .classroom-page [class*="bg-black/"],
+.prisma-auth-shell.is-dark .classroom-page [class*="bg-[#030303]"],
+.prisma-auth-shell.is-dark .classroom-page [class*="bg-[#0d161f]"],
+.prisma-auth-shell.is-dark .classroom-page [class*="bg-[#0d141d]"],
+.prisma-auth-shell.is-dark .classroom-page [class*="bg-[#1d1e20]"],
+.prisma-auth-shell.is-dark .classrooms-page [class*="bg-black/"] {
+  border-color: #394347;
+  background-color: #1b2124;
+  color: #e6ebe7;
+}
+.prisma-auth-shell.is-dark .classroom-page [class*="text-[#f2efe8]"],
+.prisma-auth-shell.is-dark .classroom-page [class*="text-[#E1E0CC]"],
+.prisma-auth-shell.is-dark .classroom-page [class*="text-[#D7D1B5]"],
+.prisma-auth-shell.is-dark .classroom-page [class*="text-[#d7d1b5]"],
+.prisma-auth-shell.is-dark .classroom-page [class*="text-[#c9c4b5]"],
+.prisma-auth-shell.is-dark .classrooms-page [class*="text-[#E1E0CC]"],
+.prisma-auth-shell.is-dark .classrooms-page [class*="text-[#D7D1B5]"] {
+  color: #c4ccc7 !important;
+}
+.prisma-auth-shell.is-dark .classroom-page .learn-search h1,
+.prisma-auth-shell.is-dark .classroom-page h1,
+.prisma-auth-shell.is-dark .classroom-page h2,
+.prisma-auth-shell.is-dark .classroom-page h3,
+.prisma-auth-shell.is-dark .classroom-page h4,
+.prisma-auth-shell.is-dark .classrooms-page h1,
+.prisma-auth-shell.is-dark .classrooms-page h2,
+.prisma-auth-shell.is-dark .classrooms-page h3 {
+  color: #f0f3ef;
+}
+.prisma-auth-shell.is-dark .classrooms-page article {
+  border-color: #394347;
+  background: #1b2124;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+}
+.prisma-auth-shell.is-dark .classrooms-page article :is(p, span) {
+  color: #c4ccc7;
+}
+.prisma-auth-shell.is-dark .classrooms-page article h3 a,
+.prisma-auth-shell.is-dark .classroom-page [class*="text-primary"] {
+  color: #a9d6c4;
+}
+.prisma-auth-shell.is-dark .classroom-page nav[role="tablist"] {
+  border-color: #394347;
+  background: rgba(27, 33, 36, 0.97);
+}
+.prisma-auth-shell.is-dark .classroom-page nav[role="tablist"] button {
+  color: #c4ccc7;
+}
+.prisma-auth-shell.is-dark .classroom-page nav[role="tablist"] button[aria-selected="true"] {
+  border-bottom-color: #9bc8b7;
+  color: #b9e0cf;
+}
+.prisma-auth-shell.is-dark .top .mobile-menu {
+  border-color: #394347;
+  background: rgba(27, 33, 36, 0.99);
+}
+.prisma-auth-shell.is-dark .classroom-delete-dialog,
+.prisma-auth-shell.is-dark .classroom-undo-toast {
+  border-color: #394347;
+  background: #1b2124;
+  color: #edf0ec;
+}
+.prisma-auth-shell.is-dark .classroom-delete-dialog h2,
+.prisma-auth-shell.is-dark .classroom-undo-toast-copy strong {
+  color: #f0f3ef;
+}
+.prisma-auth-shell.is-dark .classroom-delete-dialog > p:not(.classroom-delete-eyebrow):not(.classroom-delete-error),
+.prisma-auth-shell.is-dark .classroom-undo-toast-copy span {
+  color: #c4ccc7;
+}
+.prisma-auth-shell.is-dark :is(button, a, input, textarea, select):focus-visible,
+.prisma-auth-shell.is-dark summary:focus-visible {
+  outline-color: #9bc8b7;
+}
+
+/* Reading surfaces for the Plain and Cinematic modes. */
+.prisma-auth-shell {
+  --reader-text: #f1efdf;
+  --reader-muted: #d0d2cc;
+  --reader-panel: rgba(7, 10, 12, 0.94);
+  --reader-border: rgba(225, 224, 204, 0.2);
+  --reader-accent: #d9d3b9;
+}
+.prisma-auth-shell main {
+  line-height: 1.65;
+}
+.prisma-auth-shell :is(button, a, input, textarea, select, summary) {
+  -webkit-tap-highlight-color: transparent;
+}
+.prisma-auth-shell :is(button, a, input, textarea, select):focus-visible,
+.prisma-auth-shell summary:focus-visible {
+  outline: 3px solid #b7d9d0;
+  outline-offset: 3px;
+}
+.prisma-auth-shell :is(button, a) {
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.prisma-auth-shell main article .lead {
+  max-width: 68ch;
+  font-size: 1.08rem;
+  line-height: 1.8;
+}
+.prisma-auth-shell main article .row p,
+.prisma-auth-shell main article blockquote,
+.prisma-auth-shell main article .panel li,
+.prisma-auth-shell main article .content-block p,
+.prisma-auth-shell main article .content-block li {
+  max-width: 72ch;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+.prisma-auth-shell main article .row p {
+  margin-top: 1.1rem;
+  margin-bottom: 0.8rem;
+}
+.prisma-auth-shell main article .row + .row {
+  margin-top: 0.25rem;
+}
+.prisma-auth-shell main article .panel li + li,
+.prisma-auth-shell main article .content-block li + li {
+  margin-top: 0.65rem;
+}
+.prisma-auth-shell main article .qtext {
+  max-width: 68ch;
+  line-height: 1.55;
+}
+.prisma-auth-shell main article .opt {
+  min-height: 52px;
+  padding: 0.9rem 1rem;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.prisma-auth-shell main article .tabs button {
+  min-height: 46px;
+  font-size: 0.95rem;
+}
+.prisma-auth-shell .top nav a,
+.prisma-auth-shell .background-control,
+.prisma-auth-shell .profile-button,
+.prisma-auth-shell .mobile-menu-toggle {
+  min-height: 40px;
+}
+.prisma-auth-shell .learn-kicker,
+.prisma-auth-shell main article .meta,
+.prisma-auth-shell .learn-search .learn-kicker {
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.prisma-auth-shell.is-plain {
+  --reader-text: #202a30;
+  --reader-muted: #46575e;
+  --reader-panel: #fbfaf6;
+  --reader-border: #d5d2c9;
+  --reader-accent: #31594d;
+  background: #e9e7df;
+  color: var(--reader-text);
+}
+.prisma-auth-shell.is-plain .prisma-auth-content {
+  background: linear-gradient(180deg, #e9e7df 0%, #f1efe8 46%, #e8e6de 100%);
+}
+.prisma-auth-shell.is-plain .top {
+  border-color: #d1cec4;
+  background: rgba(250, 249, 244, 0.97);
+  color: #202a30;
+  box-shadow: 0 8px 28px rgba(28, 36, 39, 0.08);
+  backdrop-filter: blur(12px);
+}
+.prisma-auth-shell.is-plain .top a,
+.prisma-auth-shell.is-plain .profile-button {
+  color: #26363c;
+}
+.prisma-auth-shell.is-plain .top a.active {
+  border-color: #26363c;
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain .profile-button small {
+  color: #526168;
+}
+.prisma-auth-shell.is-plain .background-control {
+  border-color: #c8c5bb;
+  background: #f5f3ed;
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain .background-control:hover {
+  border-color: #73817d;
+  background: #e9e7df;
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain main {
+  color: #202a30;
+}
+.prisma-auth-shell.is-plain main > article {
+  border-color: #d5d2c9;
+  background: #fbfaf6;
+  color: #263238;
+  box-shadow: 0 16px 42px rgba(31, 38, 41, 0.08);
+  backdrop-filter: none;
+}
+.prisma-auth-shell.is-plain main article :is(h1, h2, h3, h4, h5, h6, b, strong, summary) {
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain main article :is(p, li, blockquote) {
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain main article .hero h1 {
+  color: #17252b;
+  text-shadow: none;
+}
+.prisma-auth-shell.is-plain main article .lead {
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain main article .row,
+.prisma-auth-shell.is-plain main article .list {
+  border-color: #d9d6ce;
+}
+.prisma-auth-shell.is-plain main article .row summary {
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain main article .row summary b {
+  color: #526168;
+}
+.prisma-auth-shell.is-plain main article .row p,
+.prisma-auth-shell.is-plain main article blockquote {
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain main article blockquote {
+  border-left-color: #60776c;
+  background: #f1efe8;
+}
+.prisma-auth-shell.is-plain main article .panel,
+.prisma-auth-shell.is-plain main article .content-block,
+.prisma-auth-shell.is-plain main article .card {
+  border: 1px solid #d7d4cb;
+  background: #f4f2eb;
+  color: #263238;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.prisma-auth-shell.is-plain main article .panel h3,
+.prisma-auth-shell.is-plain main article .content-block h3 {
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain main article .panel li,
+.prisma-auth-shell.is-plain main article .content-block p,
+.prisma-auth-shell.is-plain main article .content-block li,
+.prisma-auth-shell.is-plain main article .card span {
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain main article .block-label,
+.prisma-auth-shell.is-plain main article .meta,
+.prisma-auth-shell.is-plain main article .panel .meta,
+.prisma-auth-shell.is-plain main article .card small,
+.prisma-auth-shell.is-plain main article .card em {
+  color: #526168;
+}
+.prisma-auth-shell.is-plain main article .tabs {
+  border-color: #d1cec4;
+  background: #e9e7df;
+}
+.prisma-auth-shell.is-plain main article .tabs button {
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain main article .tabs button[aria-selected="true"] {
+  background: #31594d;
+  color: #fff;
+}
+.prisma-auth-shell.is-plain main article .qtext {
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain main article .opt {
+  border-color: #aab5b1;
+  background: #fffefa;
+  color: #263238;
+}
+.prisma-auth-shell.is-plain main article .opt:hover:not(:disabled) {
+  border-color: #526b62;
+  background: #f0f4f0;
+}
+.prisma-auth-shell.is-plain main article .opt.selected {
+  border-color: #31594d;
+  background: #e3eee7;
+  box-shadow: inset 0 0 0 1px #31594d;
+}
+.prisma-auth-shell.is-plain main article a:not(.btn) {
+  color: #24594a;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+.prisma-auth-shell.is-plain main article :is(input, textarea, select) {
+  border-color: #aab5b1;
+  background: #fffefa;
+  color: #202a30;
+  backdrop-filter: none;
+}
+.prisma-auth-shell.is-plain main article :is(input, textarea, select)::placeholder {
+  color: #526168;
+}
+.prisma-auth-shell.is-plain :is(button, a, input, textarea, select):focus-visible,
+.prisma-auth-shell.is-plain summary:focus-visible {
+  outline-color: #24594a;
+}
+.prisma-auth-shell.is-plain .learn-search {
+  max-width: 760px;
+}
+.prisma-auth-shell.is-plain .learn-search h1 {
+  color: #17252b;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.prisma-auth-shell.is-plain .learn-kicker {
+  color: #526168;
+}
+.prisma-auth-shell.is-plain .learn-composer,
+.prisma-auth-shell.is-plain .learn-document-panel {
+  border-color: #d2d0c8;
+  background: #fbfaf6;
+  box-shadow: 0 14px 36px rgba(28, 36, 39, 0.08);
+}
+.prisma-auth-shell.is-plain .learn-composer textarea,
+.prisma-auth-shell.is-plain .learn-document-panel textarea {
+  color: #202a30;
+  line-height: 1.7;
+}
+.prisma-auth-shell.is-plain .learn-composer textarea::placeholder,
+.prisma-auth-shell.is-plain .learn-document-panel textarea::placeholder {
+  color: #526168;
+}
+.prisma-auth-shell.is-plain .learn-composer-tools {
+  border-top-color: #dedbd2;
+}
+.prisma-auth-shell.is-plain .learn-submit,
+.prisma-auth-shell.is-plain .btn:not(.ghost) {
+  background: #31594d;
+  color: #fff;
+}
+.prisma-auth-shell.is-plain .learn-submit:hover,
+.prisma-auth-shell.is-plain .btn:not(.ghost):hover {
+  background: #24473c;
+}
+.prisma-auth-shell.is-plain .learn-difficulty,
+.prisma-auth-shell.is-plain .learn-mode-switch {
+  border-color: #d1cec4;
+  background: #f4f2eb;
+}
+.prisma-auth-shell.is-plain .learn-difficulty button,
+.prisma-auth-shell.is-plain .learn-mode-switch button {
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain .learn-difficulty button[aria-checked="true"],
+.prisma-auth-shell.is-plain .learn-mode-switch button.active {
+  background: #31594d;
+  color: #fff;
+}
+.prisma-auth-shell.is-plain .learn-suggestion,
+.prisma-auth-shell.is-plain .learn-suggestion-primary {
+  border-color: #d1d4ca;
+  background: #fbfaf6;
+  color: #202a30;
+  box-shadow: 0 8px 22px rgba(28, 36, 39, 0.06);
+}
+.prisma-auth-shell.is-plain .learn-suggestion strong {
+  color: #17252b;
+  font-size: 0.96rem;
+  line-height: 1.45;
+}
+.prisma-auth-shell.is-plain .learn-suggestion span {
+  color: #46575e;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.prisma-auth-shell.is-plain .learn-suggestion:hover,
+.prisma-auth-shell.is-plain .learn-suggestion-primary:hover {
+  border-color: #9eafa6;
+  background: #f0f3ee;
+  box-shadow: 0 10px 26px rgba(28, 36, 39, 0.1);
+}
+.prisma-auth-shell.is-plain .learn-suggestion:focus-visible {
+  outline: 3px solid #31594d;
+  outline-offset: 3px;
+}
+.prisma-auth-shell.is-plain .classroom-page {
+  color: #202a30;
+}
+.prisma-auth-shell.is-plain .classroom-page [class*="text-primary"] {
+  color: #31594d;
+}
+.prisma-auth-shell.is-plain .classroom-page [class*="bg-black/90"],
+.prisma-auth-shell.is-plain .classroom-page [class*="bg-black/95"],
+.prisma-auth-shell.is-plain .classroom-page [class*="bg-black/80"],
+.prisma-auth-shell.is-plain .classroom-page [class*="bg-black/20"],
+.prisma-auth-shell.is-plain .classroom-page [class*="bg-[#030303]"],
+.prisma-auth-shell.is-plain .classroom-page [class*="bg-[#0d161f]"],
+.prisma-auth-shell.is-plain .classroom-page [class*="bg-[#0d141d]"],
+.prisma-auth-shell.is-plain .classroom-page [class*="bg-[#1d1e20]"] {
+  background-color: #fbfaf6 !important;
+  background-image: none !important;
+  color: #263238 !important;
+}
+.prisma-auth-shell.is-plain .classroom-page [class*="text-[#f2efe8]"],
+.prisma-auth-shell.is-plain .classroom-page [class*="text-[#E1E0CC]"],
+.prisma-auth-shell.is-plain .classroom-page [class*="text-[#D7D1B5]"],
+.prisma-auth-shell.is-plain .classroom-page [class*="text-[#d7d1b5]"],
+.prisma-auth-shell.is-plain .classroom-page [class*="text-[#c9c4b5]"],
+.prisma-auth-shell.is-plain .classroom-page [class*="text-[#b9b4a7]"] {
+  color: #34434a !important;
+}
+.prisma-auth-shell.is-plain .classroom-page :is(h1, h2, h3, h4, h5, h6, p, li, label, summary) {
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classroom-page span {
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain .classroom-page .text-emerald-100,
+.prisma-auth-shell.is-plain .classroom-page .text-emerald-200 {
+  color: #246243;
+}
+.prisma-auth-shell.is-plain .classroom-page .text-amber-100,
+.prisma-auth-shell.is-plain .classroom-page .text-amber-200 {
+  color: #79520f;
+}
+.prisma-auth-shell.is-plain .classroom-page .learn-search {
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classroom-page .learn-search .learn-kicker,
+.prisma-auth-shell.is-plain .classroom-page .learn-search .text-primary\/80 {
+  color: #526168;
+}
+.prisma-auth-shell.is-plain .classroom-page .learn-search .learn-composer textarea,
+.prisma-auth-shell.is-plain .classroom-page .learn-search .learn-composer textarea::placeholder {
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classroom-page .classroom-course-outline,
+.prisma-auth-shell.is-plain .classroom-page aside[id="classroom-course-outline"] {
+  border-color: #d1cec4;
+  background: #f5f3ed;
+}
+.prisma-auth-shell.is-plain .classroom-page aside[id="classroom-course-outline"] [class*="bg-[#0d141d]"],
+.prisma-auth-shell.is-plain .classroom-page aside[id="classroom-course-outline"] [class*="bg-[#1d1e20]"] {
+  background: #eeece5 !important;
+}
+.prisma-auth-shell.is-plain .classroom-page aside[id="classroom-course-outline"] :is(button, p, span) {
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain .classroom-page aside[id="classroom-course-outline"] button[aria-pressed="true"],
+.prisma-auth-shell.is-plain .classroom-page aside[id="classroom-course-outline"] button.border-primary\/50 {
+  background: #e5ece7;
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain .classroom-page nav[role="tablist"] {
+  border-color: #d1cec4;
+  background: rgba(250, 249, 244, 0.97);
+  backdrop-filter: blur(12px);
+}
+.prisma-auth-shell.is-plain .classroom-page nav[role="tablist"] button {
+  color: #46575e;
+}
+.prisma-auth-shell.is-plain .classroom-page nav[role="tablist"] button[aria-selected="true"] {
+  border-bottom-color: #31594d;
+  color: #24473c;
+}
+.prisma-auth-shell.is-plain .classroom-page [role="dialog"] {
+  border-color: #d1cec4;
+  background: #fbfaf6;
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classroom-page [role="dialog"] :is(h2, p, button) {
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classroom-page > header,
+.prisma-auth-shell.is-plain .classroom-page > section[aria-label] {
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classrooms-page {
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classrooms-page h1,
+.prisma-auth-shell.is-plain .classrooms-page h2,
+.prisma-auth-shell.is-plain .classrooms-page h3,
+.prisma-auth-shell.is-plain .classrooms-page strong {
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain .classrooms-page [class*="text-primary"] {
+  color: #31594d;
+}
+.prisma-auth-shell.is-plain .classrooms-page [class*="text-[#E1E0CC]"],
+.prisma-auth-shell.is-plain .classrooms-page [class*="text-[#D7D1B5]"] {
+  color: #34434a !important;
+}
+.prisma-auth-shell.is-plain .classrooms-page [class*="bg-black/"] {
+  border-color: #d5d2c9;
+  background-color: #fbfaf6;
+  color: #263238;
+  box-shadow: 0 8px 22px rgba(28, 36, 39, 0.06);
+}
+.prisma-auth-shell.is-plain .classrooms-page article {
+  border-color: #d5d2c9;
+  background: #fbfaf6;
+  box-shadow: 0 10px 28px rgba(28, 36, 39, 0.07);
+}
+.prisma-auth-shell.is-plain .classrooms-page article p,
+.prisma-auth-shell.is-plain .classrooms-page article span {
+  color: #46575e;
+}
+.prisma-auth-shell.is-plain .classrooms-page article h3,
+.prisma-auth-shell.is-plain .classrooms-page article h3 a {
+  color: #185447;
+}
+.prisma-auth-shell.is-plain .classrooms-page article a:not([class*="bg-primary"]) {
+  color: #24594a;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+.prisma-auth-shell.is-plain .classrooms-page article [class*="bg-primary/10"] {
+  border-color: #b6c9bf;
+  background: #e5eee8;
+  color: #24473c;
+}
+.prisma-auth-shell.is-plain .classrooms-page button[class*="bg-primary"] {
+  background: #31594d;
+  color: #fff;
+}
+.prisma-auth-shell.is-plain .classrooms-page button[class*="bg-primary"]:hover {
+  background: #24473c;
+}
+.prisma-auth-shell.is-plain .classrooms-page input,
+.prisma-auth-shell.is-plain .classrooms-page textarea {
+  border-color: #aab5b1;
+  background: #fffefa;
+  color: #202a30;
+}
+.prisma-auth-shell.is-plain .classrooms-page input::placeholder,
+.prisma-auth-shell.is-plain .classrooms-page textarea::placeholder {
+  color: #526168;
+}
+.prisma-auth-shell.is-plain .classrooms-page :is(button, a, input, textarea):focus-visible {
+  outline: 3px solid #24594a;
+  outline-offset: 3px;
+}
+.prisma-auth-shell.is-plain .top .mobile-menu {
+  border-color: #d1cec4;
+  background: rgba(250, 249, 244, 0.99);
+}
+.prisma-auth-shell.is-plain .top .mobile-menu :is(a, button, small) {
+  color: #263238;
+}
+.classroom-delete-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(4, 8, 10, 0.78);
+  backdrop-filter: blur(8px);
+}
+.classroom-undo-toast {
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 90;
+  display: flex;
+  width: min(34rem, calc(100vw - 2rem));
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid rgba(225, 224, 204, 0.2);
+  border-radius: 14px;
+  padding: 0.85rem;
+  background: #111719;
+  color: #f1efdf;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.38);
+  animation: classroom-dialog-enter 0.18s ease-out both;
+}
+.classroom-undo-toast-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(74, 160, 106, 0.2);
+  color: #9bd3ac;
+}
+.classroom-undo-toast-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 0.12rem;
+}
+.classroom-undo-toast-copy strong {
+  overflow: hidden;
+  color: #f7f5ec;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.classroom-undo-toast-copy span {
+  color: #cbd0c9;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.classroom-undo-button,
+.classroom-undo-dismiss {
+  display: inline-flex;
+  min-height: 40px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(225, 224, 204, 0.28);
+  border-radius: 9px;
+  padding: 0.5rem 0.75rem;
+  background: rgba(225, 224, 204, 0.08);
+  color: #f1efdf;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.classroom-undo-button:hover:not(:disabled),
+.classroom-undo-dismiss:hover {
+  background: rgba(225, 224, 204, 0.16);
+}
+.classroom-undo-dismiss {
+  width: 40px;
+  padding: 0;
+}
+.classroom-undo-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.classroom-edit-form {
+  color: #f1efdf;
+}
+.classroom-edit-form label {
+  color: #d0d2cc;
+}
+.classroom-edit-form :is(input, textarea) {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(225, 224, 204, 0.25);
+  border-radius: 9px;
+  padding: 0.65rem 0.8rem;
+  background: rgba(8, 10, 12, 0.82);
+  color: #f7f5ec;
+  font: inherit;
+  font-size: 0.95rem;
+}
+.classroom-edit-form textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+.classroom-edit-form :is(input, textarea)::placeholder {
+  color: #aeb8b2;
+}
+.classroom-edit-form :is(input, textarea):focus-visible {
+  outline: 3px solid #b7d9d0;
+  outline-offset: 2px;
+}
+.prisma-auth-shell.is-plain .classroom-undo-toast {
+  border-color: #d5d2c9;
+  background: #fbfaf6;
+  color: #263238;
+  box-shadow: 0 16px 48px rgba(24, 34, 36, 0.2);
+}
+.prisma-auth-shell.is-plain .classroom-undo-toast-copy strong {
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain .classroom-undo-toast-copy span {
+  color: #46575e;
+}
+.prisma-auth-shell.is-plain .classroom-undo-button,
+.prisma-auth-shell.is-plain .classroom-undo-dismiss {
+  border-color: #bfc6c1;
+  background: #f2f1eb;
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classroom-undo-button:hover:not(:disabled),
+.prisma-auth-shell.is-plain .classroom-undo-dismiss:hover {
+  background: #e8e8e1;
+}
+.prisma-auth-shell.is-plain .classroom-edit-form {
+  border-color: #d5d2c9;
+  background: #fbfaf6;
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classroom-edit-form label {
+  color: #34434a;
+}
+.prisma-auth-shell.is-plain .classroom-edit-form :is(input, textarea) {
+  border-color: #aab5b1;
+  background: #fffefa;
+  color: #202a30;
+}
+.prisma-auth-shell.is-plain .classroom-edit-form :is(input, textarea)::placeholder {
+  color: #526168;
+}
+.prisma-auth-shell.is-plain .classroom-edit-form :is(input, textarea):focus-visible {
+  outline-color: #24594a;
+}
+@media (max-width: 480px) {
+  .classroom-undo-toast {
+    right: 0.65rem;
+    bottom: max(0.65rem, env(safe-area-inset-bottom));
+    width: calc(100vw - 1.3rem);
+    gap: 0.5rem;
+    padding: 0.65rem;
+  }
+  .classroom-undo-toast-copy span {
+    font-size: 0.72rem;
+  }
+  .classroom-undo-button {
+    padding-right: 0.6rem;
+    padding-left: 0.6rem;
+  }
+}
+.classroom-delete-dialog {
+  width: min(100%, 30rem);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid rgba(225, 224, 204, 0.2);
+  border-radius: 18px;
+  background: #111719;
+  color: #f1efdf;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.48);
+  animation: classroom-dialog-enter 0.18s ease-out both;
+}
+.classroom-delete-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 12px;
+  background: rgba(127, 29, 29, 0.25);
+  color: #fca5a5;
+}
+.classroom-delete-eyebrow {
+  margin: 1.1rem 0 0.3rem;
+  color: #fca5a5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.classroom-delete-dialog h2 {
+  margin: 0;
+  color: #f7f5ec;
+  font-size: 1.35rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.classroom-delete-dialog > p:not(.classroom-delete-eyebrow):not(.classroom-delete-error) {
+  margin: 0.8rem 0 0;
+  color: #d0d2cc;
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+.classroom-delete-error {
+  margin: 0.9rem 0 0;
+  border-left: 3px solid #ef4444;
+  padding: 0.55rem 0.75rem;
+  background: rgba(127, 29, 29, 0.25);
+  color: #fecaca;
+  font-size: 0.9rem;
+}
+.classroom-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 1.5rem;
+}
+.classroom-delete-actions button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(225, 224, 204, 0.28);
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  background: rgba(225, 224, 204, 0.08);
+  color: #f1efdf;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.classroom-delete-actions button:hover:not(:disabled) {
+  background: rgba(225, 224, 204, 0.15);
+}
+.classroom-delete-actions .classroom-delete-confirm {
+  border-color: #b91c1c;
+  background: #b91c1c;
+  color: #fff;
+}
+.classroom-delete-actions .classroom-delete-confirm:hover:not(:disabled) {
+  background: #991b1b;
+}
+.classroom-delete-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.classroom-delete-actions button:focus-visible {
+  outline: 3px solid #b7d9d0;
+  outline-offset: 3px;
+}
+.prisma-auth-shell.is-plain .classroom-delete-dialog {
+  border-color: #d5d2c9;
+  background: #fbfaf6;
+  color: #263238;
+  box-shadow: 0 28px 90px rgba(24, 34, 36, 0.26);
+}
+.prisma-auth-shell.is-plain .classroom-delete-icon {
+  border-color: #e4b4aa;
+  background: #fbefec;
+  color: #a52f25;
+}
+.prisma-auth-shell.is-plain .classroom-delete-eyebrow {
+  color: #a52f25;
+}
+.prisma-auth-shell.is-plain .classroom-delete-dialog h2 {
+  color: #17252b;
+}
+.prisma-auth-shell.is-plain .classroom-delete-dialog > p:not(.classroom-delete-eyebrow):not(.classroom-delete-error) {
+  color: #46575e;
+}
+.prisma-auth-shell.is-plain .classroom-delete-error {
+  background: #fbefec;
+  color: #8f211b;
+}
+.prisma-auth-shell.is-plain .classroom-delete-actions button:not(.classroom-delete-confirm) {
+  border-color: #bfc6c1;
+  background: #f2f1eb;
+  color: #263238;
+}
+.prisma-auth-shell.is-plain .classroom-delete-actions button:not(.classroom-delete-confirm):hover:not(:disabled) {
+  background: #e8e8e1;
+}
+.prisma-auth-shell.is-plain .classroom-delete-actions .classroom-delete-confirm {
+  border-color: #a52f25;
+  background: #a52f25;
+  color: #fff;
+}
+.prisma-auth-shell.is-plain .classroom-delete-actions .classroom-delete-confirm:hover:not(:disabled) {
+  background: #85261f;
+}
+@keyframes classroom-dialog-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .classroom-delete-dialog {
+    animation: none;
+  }
+}
+.prisma-auth-shell:not(.is-plain) main > article,
+.prisma-auth-shell:not(.is-plain) main article .panel,
+.prisma-auth-shell:not(.is-plain) main article .content-block {
+  background-color: var(--reader-panel);
+  border-color: var(--reader-border);
+}
+.prisma-auth-shell:not(.is-plain) main article .row p,
+.prisma-auth-shell:not(.is-plain) main article .lead,
+.prisma-auth-shell:not(.is-plain) main article .panel li,
+.prisma-auth-shell:not(.is-plain) main article .content-block p,
+.prisma-auth-shell:not(.is-plain) main article .content-block li {
+  color: var(--reader-muted);
+}
+.prisma-auth-shell:not(.is-plain) .learn-suggestion {
+  border-color: rgba(225, 224, 204, 0.24);
+  background: rgba(7, 18, 20, 0.96);
+  color: #f5f3e9;
+}
+.prisma-auth-shell:not(.is-plain) .learn-suggestion-primary {
+  background: rgba(18, 91, 97, 0.97);
+}
+.prisma-auth-shell:not(.is-plain) .learn-suggestion span {
+  color: #e2e8e3;
+}
+.prisma-auth-shell:not(.is-plain) .learn-suggestion:hover {
+  border-color: rgba(225, 224, 204, 0.42);
+}
+@media (max-width: 760px) {
+  .prisma-auth-shell.is-plain main {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .prisma-auth-shell.is-plain main article .row p,
+  .prisma-auth-shell.is-plain main article blockquote {
+    margin-left: 0;
+  }
+  .prisma-auth-shell.is-plain .top .mobile-menu .nav-actions {
+    border-top-color: #d1cec4;
+  }
+  .prisma-auth-shell main article .refine-form {
+    flex-wrap: wrap;
+  }
+  .prisma-auth-shell main article .refine-form input {
+    flex-basis: 100%;
   }
 }
 

@@ -23,6 +23,19 @@ type User = {
 };
 
 const GUEST_ID_KEY = "curiosity.guest-id";
+const THEME_KEY = "curiosity.theme";
+type ThemeMode = "cinematic" | "plain" | "dark";
+const themeCycle: ThemeMode[] = ["cinematic", "plain", "dark"];
+const nextTheme: Record<ThemeMode, ThemeMode> = {
+  cinematic: "plain",
+  plain: "dark",
+  dark: "cinematic",
+};
+const themeLabel: Record<ThemeMode, string> = {
+  cinematic: "Cinematic",
+  plain: "Plain",
+  dark: "Dark",
+};
 const getGuestId = () => {
   const existing = localStorage.getItem(GUEST_ID_KEY);
   if (existing) return existing;
@@ -108,7 +121,10 @@ export default function App() {
   const [checking, setChecking] = useState(true);
   const [showSignIn, setShowSignIn] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [plainBackground, setPlainBackground] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const saved = localStorage.getItem(THEME_KEY) as ThemeMode | null;
+    return saved && themeCycle.includes(saved) ? saved : "cinematic";
+  });
   const [videoPaused, setVideoPaused] = useState(false);
   const [pictureFailed, setPictureFailed] = useState(false);
   const backgroundVideoRef = useRef<HTMLVideoElement>(null);
@@ -172,6 +188,22 @@ export default function App() {
       setVideoPaused(true);
     }
   };
+  const cycleTheme = () => {
+    setTheme((current) => {
+      const next = nextTheme[current];
+      localStorage.setItem(THEME_KEY, next);
+      return next;
+    });
+  };
+  useEffect(() => {
+    const video = backgroundVideoRef.current;
+    if (!video) return;
+    if (theme !== "cinematic") {
+      video.pause();
+    } else if (!videoPaused) {
+      void video.play().catch(() => undefined);
+    }
+  }, [theme, videoPaused]);
   if (checking)
     return (
       <div className="state">
@@ -188,7 +220,7 @@ export default function App() {
     );
   return (
     <BrowserRouter>
-      <div className={`prisma-auth-shell${plainBackground ? " is-plain" : ""}`}>
+      <div className={`prisma-auth-shell${theme === "plain" ? " is-plain" : theme === "dark" ? " is-dark" : ""}`} data-theme={theme}>
         <video
           ref={backgroundVideoRef}
           className="prisma-auth-video"
@@ -248,24 +280,16 @@ export default function App() {
               >
                 <button
                   className="background-control"
-                  onClick={() => setPlainBackground(!plainBackground)}
-                  title={
-                    plainBackground
-                      ? "Use cinematic background"
-                      : "Use simple background"
-                  }
-                  aria-label={
-                    plainBackground
-                      ? "Use cinematic background"
-                      : "Use simple black and cream background"
-                  }
+                  onClick={cycleTheme}
+                  title={`Current theme: ${themeLabel[theme]}. Switch to ${themeLabel[nextTheme[theme]]}.`}
+                  aria-label={`Theme: ${themeLabel[theme]}. Switch to ${themeLabel[nextTheme[theme]]}.`}
                 >
                   <Sun size={15} />
                   <span className="background-control-label">
-                    {plainBackground ? "Cinematic" : "Plain"}
+                    {themeLabel[theme]}
                   </span>
                 </button>
-                <button
+                {theme === "cinematic" && <button
                   className="background-control"
                   onClick={toggleVideo}
                   title={
@@ -282,7 +306,7 @@ export default function App() {
                   <span className="background-control-icon">
                     {videoPaused ? <Play size={15} /> : <Pause size={15} />}
                   </span>
-                </button>
+                </button>}
               </div>
               <button
                 className="profile-button"

@@ -13,6 +13,7 @@ export type Lesson = {
     options: string[];
     correctAnswer: string;
     explanation: string;
+    conceptIds?: string[];
   }[];
   blocks: ContentBlock[];
 };
@@ -56,6 +57,14 @@ export type SavedSession = {
   answers?: Record<string, string>;
   evaluation: { completed: boolean; score?: number };
   createdAt: string;
+};
+export type ClassroomTopicSession = {
+  id: string;
+  topic: string;
+  search: string;
+  difficulty: string;
+  createdAt: string;
+  evaluation: { completed: boolean; score?: number };
 };
 
 export type Role = "ADMIN" | "FACULTY" | "STUDENT";
@@ -138,6 +147,20 @@ export type AdaptivePathItem = {
   nextAction: string;
 };
 
+export type AdaptiveRevisionTask = {
+  id: string;
+  topicId: string;
+  moduleId?: string;
+  conceptIds: string[];
+  weakQuestionTexts: string[];
+  mappingStatus: "mapped" | "insufficient";
+  status: "pending" | "ready" | "failed" | "revision_complete" | "generating_retest" | "retest_available" | "mastered";
+  generationStatus: "pending" | "generating" | "ready" | "failed" | "complete";
+  generationError?: string;
+  lastRetestScore?: number;
+  revisionContent?: Pick<Lesson, "topic" | "explanation" | "flashcards" | "blocks">;
+};
+
 export type ClassroomProgress = {
   mastery: { score: number | null; state: string };
   coverage: { coveredTopics: number; totalTopics: number; percent: number };
@@ -145,7 +168,11 @@ export type ClassroomProgress = {
     items: AdaptivePathItem[];
     recommendation: AdaptivePathItem | null;
     progress: { completed: number; total: number; percent: number };
+    revisionTasks: AdaptiveRevisionTask[];
+    curriculumComplete: boolean;
   };
+  revisionTasks: AdaptiveRevisionTask[];
+  revisionHistory?: AdaptiveRevisionTask[];
   modules: {
     id: string;
     title: string;

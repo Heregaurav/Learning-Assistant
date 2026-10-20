@@ -175,9 +175,21 @@ export const createClassroom = (payload: ClassroomDraft) =>
     body: JSON.stringify(payload),
   });
 
+export const updateClassroom = (classroomId: string, payload: ClassroomDraft) =>
+  req<Classroom>(`/api/classrooms/${encodeURIComponent(classroomId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
 export const deleteClassroom = (classroomId: string) =>
-  req<{ deleted: boolean; id: string }>(`/api/classrooms/${encodeURIComponent(classroomId)}`, {
+  req<{ deleted: boolean; id: string; undoToken: string; undoSeconds: number }>(`/api/classrooms/${encodeURIComponent(classroomId)}`, {
     method: "DELETE",
+  });
+
+export const undoDeleteClassroom = (classroomId: string, undoToken: string) =>
+  req<Classroom>(`/api/classrooms/${encodeURIComponent(classroomId)}/undo-delete`, {
+    method: "POST",
+    body: JSON.stringify({ undoToken }),
   });
 
 export const joinClassroom = (joinCode: string) =>
@@ -228,6 +240,36 @@ export const publishClassroomCurriculum = (classroomId: string) =>
 
 export const getClassroomProgress = (classroomId: string) =>
   req<ClassroomProgress>(`${classroomPath(classroomId)}/progress`);
+
+export const getClassroomTopicSessions = (classroomId: string, topicId: string) =>
+  req<import("../types").ClassroomTopicSession[]>(`${classroomPath(classroomId)}/topics/${encodeURIComponent(topicId)}/sessions`);
+
+export const generateAdaptiveRevision = (classroomId: string, taskId: string) =>
+  req<import("../types").AdaptiveRevisionTask>(`${classroomPath(classroomId)}/revision-tasks/${encodeURIComponent(taskId)}/generate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }).then((result) => {
+    notifyProgressUpdated();
+    return result;
+  });
+
+export const completeAdaptiveRevision = (classroomId: string, taskId: string) =>
+  req<import("../types").AdaptiveRevisionTask>(`${classroomPath(classroomId)}/revision-tasks/${encodeURIComponent(taskId)}/complete`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }).then((result) => {
+    notifyProgressUpdated();
+    return result;
+  });
+
+export const createAdaptiveRetest = (classroomId: string, taskId: string) =>
+  req<{ sessionId: string; taskId: string; learningContent: Lesson }>(`${classroomPath(classroomId)}/revision-tasks/${encodeURIComponent(taskId)}/retest`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }).then((result) => {
+    notifyProgressUpdated();
+    return result;
+  });
 
 export const getClassroomAnalytics = (classroomId: string) =>
   req<{

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Plus, X } from "lucide-react";
-import { createClassroom, getClassrooms, joinClassroom } from "../lib/api";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Check, LoaderCircle, Plus, Undo2, X } from "lucide-react";
+import { createClassroom, getClassrooms, joinClassroom, undoDeleteClassroom } from "../lib/api";
 import type { Classroom, Role } from "../types";
 
 type Props = {
@@ -10,6 +10,8 @@ type Props = {
 };
 
 export default function ClassroomsPage({ user, onRequireSignIn }: Props) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [form, setForm] = useState({
     name: "",
@@ -22,6 +24,10 @@ export default function ClassroomsPage({ user, onRequireSignIn }: Props) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [deletedClassroom, setDeletedClassroom] = useState<{ id: string; name: string; undoToken: string; undoSeconds: number } | null>(null);
+  const [undoingDelete, setUndoingDelete] = useState(false);
+  const [undoError, setUndoError] = useState("");
+  const undoTimerRef = useRef<number | undefined>(undefined);
 
   const canManageClassrooms = Boolean(user);
 
@@ -41,6 +47,39 @@ export default function ClassroomsPage({ user, onRequireSignIn }: Props) {
   useEffect(() => {
     if (user) void loadClassrooms();
   }, [user]);
+
+  useEffect(() => {
+    const pending = (location.state as { deletedClassroom?: typeof deletedClassroom } | null)?.deletedClassroom;
+    if (!pending) return;
+    setDeletedClassroom(pending);
+    setUndoError("");
+    if (undoTimerRef.current !== undefined) window.clearTimeout(undoTimerRef.current);
+    navigate(location.pathname, { replace: true, state: null });
+    undoTimerRef.current = window.setTimeout(() => setDeletedClassroom((current) => current?.undoToken === pending.undoToken ? null : current), pending.undoSeconds * 1000);
+  }, [location.key, location.pathname, location.state, navigate]);
+
+  useEffect(() => () => {
+    if (undoTimerRef.current !== undefined) window.clearTimeout(undoTimerRef.current);
+  }, []);
+
+  const undoClassroomDelete = async () => {
+    if (!deletedClassroom || undoingDelete) return;
+    setUndoingDelete(true);
+    setUndoError("");
+    try {
+      await undoDeleteClassroom(deletedClassroom.id, deletedClassroom.undoToken);
+      if (undoTimerRef.current !== undefined) window.clearTimeout(undoTimerRef.current);
+      setDeletedClassroom(null);
+      setSuccess(`${deletedClassroom.name} restored.`);
+      await loadClassrooms();
+    } catch (reason) {
+      setError((reason as Error).message || "Undo period has ended.");
+      setDeletedClassroom(null);
+      await loadClassrooms();
+    } finally {
+      setUndoingDelete(false);
+    }
+  };
 
   const handleCreate = async () => {
     if (!user) {
@@ -76,7 +115,7 @@ export default function ClassroomsPage({ user, onRequireSignIn }: Props) {
   if (!user) return <div className="state"><p>Sign in to view classrooms.</p></div>;
 
   return (
-    <section className="max-w-6xl mx-auto px-4 py-8 text-[#E1E0CC]">
+    <section className="classrooms-page max-w-6xl mx-auto px-4 py-8 text-[#E1E0CC]">
       <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-primary">Classrooms</p>
@@ -103,6 +142,16 @@ export default function ClassroomsPage({ user, onRequireSignIn }: Props) {
 
       {error && <div className="mt-4 rounded-lg border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
       {success && <div className="mt-4 rounded-lg border border-emerald-500/50 bg-emerald-500/10 p-3 text-sm text-emerald-200">{success}</div>}
+
+      {deletedClassroom && <div className="classroom-undo-toast" role="status" aria-live="polite">
+        <span className="classroom-undo-toast-icon"><Check size={16} /></span>
+        <div className="classroom-undo-toast-copy"><strong>{deletedClassroom.name} deleted</strong><span>{undoError || "You can undo this for a few seconds."}</span></div>
+        <button type="button" disabled={undoingDelete} onClick={() => void undoClassroomDelete()} className="classroom-undo-button">
+          {undoingDelete ? <LoaderCircle size={15} className="animate-spin" /> : <Undo2 size={15} />}
+          {undoingDelete ? "Restoring…" : "Undo"}
+        </button>
+        <button type="button" onClick={() => setDeletedClassroom(null)} className="classroom-undo-dismiss" aria-label="Dismiss undo notification"><X size={16} /></button>
+      </div>}
 
       {canManageClassrooms && (
         <div className="mt-8">

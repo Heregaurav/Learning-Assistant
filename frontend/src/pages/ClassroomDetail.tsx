@@ -1,9 +1,10 @@
-import { FormEvent, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ArrowRight, BookOpen, Menu, Plus, Trash2, X } from "lucide-react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { AlertTriangle, ArrowRight, BookOpen, Menu, Pencil, Plus, Trash2, X } from "lucide-react";
 import {
   createCurriculumModule,
   createCurriculumTopic,
+  CLASSROOM_PROGRESS_UPDATED,
   deleteClassroom,
   deleteCurriculumModule,
   deleteCurriculumTopic,
@@ -11,6 +12,7 @@ import {
   getClassroomProgress,
   generateClassroomCurriculum,
   publishClassroomCurriculum,
+  updateClassroom,
 } from "../lib/api";
 import ClassworkPanel from "./ClassworkPanel";
 import ClassroomInsights from "./ClassroomInsights";
@@ -24,6 +26,7 @@ type Props = {
 
 export default function ClassroomDetail({ user }: Props) {
   const { classroomId = "" } = useParams();
+  const navigate = useNavigate();
   const [data, setData] = useState<ClassroomCurriculum | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -44,6 +47,12 @@ export default function ClassroomDetail({ user }: Props) {
   const [selectedTopicId, setSelectedTopicId] = useState("");
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
   const [publishing, setPublishing] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingClassroom, setDeletingClassroom] = useState(false);
+  const [editingClassroom, setEditingClassroom] = useState(false);
+  const [savingClassroom, setSavingClassroom] = useState(false);
+  const [classroomForm, setClassroomForm] = useState({ name: "", subject: "", section: "", semester: "", description: "" });
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
   const [curriculumPrompt, setCurriculumPrompt] = useState("");
   const [draft, setDraft] = useState<{ modules: { title: string; description?: string; topics: Omit<CurriculumTopic, "id">[] }[] } | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -87,6 +96,16 @@ export default function ClassroomDetail({ user }: Props) {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [mobileNavOpen, mobileOutlineOpen]);
 
+  useEffect(() => {
+    if (!showDeleteConfirm) return;
+    cancelDeleteRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !deletingClassroom) setShowDeleteConfirm(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showDeleteConfirm, deletingClassroom]);
+
   const refresh = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!silent) setLoading(true);
     setError("");
@@ -108,12 +127,20 @@ export default function ClassroomDetail({ user }: Props) {
       setProgress(null);
       return;
     }
-    getClassroomProgress(classroomId)
+    let cancelled = false;
+    const loadProgress = () => getClassroomProgress(classroomId)
       .then((nextProgress) => {
+        if (cancelled) return;
         setProgress(nextProgress);
         setSelectedTopicId((current) => current || nextProgress.learningPath.recommendation?.topicId || "");
       })
-      .catch(() => setProgress(null));
+      .catch(() => { if (!cancelled) setProgress(null); });
+    void loadProgress();
+    window.addEventListener(CLASSROOM_PROGRESS_UPDATED, loadProgress);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CLASSROOM_PROGRESS_UPDATED, loadProgress);
+    };
   }, [classroomId, user?.id, canEdit]);
 
   useEffect(() => {
@@ -194,13 +221,57 @@ export default function ClassroomDetail({ user }: Props) {
   };
 
   const removeClassroom = async () => {
-    if (!canDelete || !window.confirm("Delete this classroom and all of its curriculum, classwork, submissions, and learning history? This cannot be undone.")) return;
+    if (!canDelete || deletingClassroom) return;
+    setDeletingClassroom(true);
     setError("");
     try {
-      await deleteClassroom(classroomId);
-      window.location.href = "/classrooms";
+      const result = await deleteClassroom(classroomId);
+      navigate("/classrooms", {
+        state: {
+          deletedClassroom: {
+            id: result.id,
+            name: data?.classroom.name ?? "Classroom",
+            undoToken: result.undoToken,
+            undoSeconds: result.undoSeconds,
+          },
+        },
+      });
     } catch (reason) {
       setError((reason as Error).message || "Unable to delete this classroom.");
+      setShowDeleteConfirm(false);
+    } finally {
+      setDeletingClassroom(false);
+    }
+  };
+
+  const openClassroomEditor = () => {
+    if (!data) return;
+    setClassroomForm({
+      name: data.classroom.name,
+      subject: data.classroom.subject,
+      section: data.classroom.section,
+      semester: data.classroom.semester,
+      description: data.classroom.description ?? "",
+    });
+    setEditingClassroom(true);
+    setError("");
+  };
+
+  const saveClassroomDetails = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!canEdit || savingClassroom) return;
+    setSavingClassroom(true);
+    setError("");
+    setNotice("");
+    try {
+      await updateClassroom(classroomId, classroomForm);
+      setEditingClassroom(false);
+      setNotice("Classroom details updated.");
+      await refresh({ silent: true });
+    } catch (reason) {
+      setError((reason as Error).message || "Unable to update classroom details.");
+    } finally {
+      setSavingClassroom(false);
     }
   };
 
@@ -293,16 +364,29 @@ export default function ClassroomDetail({ user }: Props) {
           <h1 className="mt-2 text-3xl font-semibold">{data.classroom.name}</h1>
           <p className="mt-2 max-w-3xl text-sm text-[#D7D1B5]">{data.classroom.description || "No course description provided."}</p>
         </div>
-        {canDelete && (
-          <button
-            type="button"
-            onClick={() => void removeClassroom()}
-            className="inline-flex items-center gap-2 rounded-lg border border-red-400/50 px-3 py-2 text-sm text-red-200 hover:bg-red-950/40"
-          >
-            <Trash2 size={16} /> Delete classroom
-          </button>
-        )}
+        {(canEdit || canDelete) && <div className="flex flex-wrap gap-2">
+          {canEdit && <button type="button" onClick={openClassroomEditor} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-primary/35 bg-black/25 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"><Pencil size={16} /> Edit details</button>}
+          {canDelete && <button type="button" onClick={() => setShowDeleteConfirm(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-red-500 bg-red-700 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-red-950/30 hover:bg-red-800"><Trash2 size={16} /> Delete classroom</button>}
+        </div>}
       </header>
+
+      {editingClassroom && canEdit && <form onSubmit={(event) => void saveClassroomDetails(event)} className="classroom-edit-form mt-5 rounded-xl border border-primary/25 bg-black/65 p-4 md:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><p className="text-xs uppercase tracking-[0.15em] text-primary/80">Classroom settings</p><h2 className="mt-1 text-xl font-semibold">Edit details</h2></div>
+          <button type="button" onClick={() => setEditingClassroom(false)} disabled={savingClassroom} className="grid h-10 w-10 place-items-center rounded-lg border border-primary/25 text-primary hover:bg-primary/10 disabled:opacity-50" aria-label="Cancel editing"><X size={18} /></button>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1.5 text-sm">Classroom name<input required maxLength={200} value={classroomForm.name} onChange={(event) => setClassroomForm((form) => ({ ...form, name: event.target.value }))} /></label>
+          <label className="grid gap-1.5 text-sm">Subject<input required maxLength={200} value={classroomForm.subject} onChange={(event) => setClassroomForm((form) => ({ ...form, subject: event.target.value }))} /></label>
+          <label className="grid gap-1.5 text-sm">Section<input required maxLength={50} value={classroomForm.section} onChange={(event) => setClassroomForm((form) => ({ ...form, section: event.target.value }))} /></label>
+          <label className="grid gap-1.5 text-sm">Semester<input required maxLength={80} value={classroomForm.semester} onChange={(event) => setClassroomForm((form) => ({ ...form, semester: event.target.value }))} /></label>
+          <label className="grid gap-1.5 text-sm sm:col-span-2">Description<textarea maxLength={2000} rows={3} value={classroomForm.description} onChange={(event) => setClassroomForm((form) => ({ ...form, description: event.target.value }))} /></label>
+        </div>
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button type="button" disabled={savingClassroom} onClick={() => setEditingClassroom(false)} className="min-h-11 rounded-lg border border-primary/30 px-4 py-2 text-sm hover:bg-white/5 disabled:opacity-50">Cancel</button>
+          <button type="submit" disabled={savingClassroom} className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-black disabled:opacity-60">{savingClassroom ? "Saving…" : "Save changes"}</button>
+        </div>
+      </form>}
 
       <button
         type="button"
@@ -553,6 +637,9 @@ export default function ClassroomDetail({ user }: Props) {
                   classroomId={classroomId}
                   curriculumTopicId={selectedTopicId}
                   classroomOnly
+                  revisionTasks={progress?.revisionTasks ?? []}
+                  revisionHistory={progress?.revisionHistory ?? []}
+                  topicStatus={progress?.learningPath.items.find((item) => item.topicId === selectedTopicId)?.status}
                 />
               </section>
             )}
@@ -680,6 +767,33 @@ export default function ClassroomDetail({ user }: Props) {
       )}
       {((activeTab === "progress" && !canEdit) || (activeTab === "analytics" && canEdit)) && user && <ClassroomInsights classroomId={classroomId} canEdit={canEdit} user={user} />}
       </div>
+      {showDeleteConfirm && (
+        <div className="classroom-delete-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget && !deletingClassroom) setShowDeleteConfirm(false); }}>
+          <section
+            className="classroom-delete-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-classroom-title"
+            aria-describedby="delete-classroom-description"
+          >
+            <div className="classroom-delete-icon" aria-hidden="true"><AlertTriangle size={22} /></div>
+            <p className="classroom-delete-eyebrow">Permanent action</p>
+            <h2 id="delete-classroom-title">Delete {data.classroom.name}?</h2>
+            <p id="delete-classroom-description">
+              This will permanently remove the classroom, curriculum, classwork, submissions, and learning history. This action cannot be undone.
+            </p>
+            {error && <p className="classroom-delete-error" role="alert">{error}</p>}
+            <div className="classroom-delete-actions">
+              <button ref={cancelDeleteRef} type="button" disabled={deletingClassroom} onClick={() => setShowDeleteConfirm(false)}>
+                Cancel
+              </button>
+              <button type="button" className="classroom-delete-confirm" disabled={deletingClassroom} onClick={() => void removeClassroom()}>
+                <Trash2 size={16} /> {deletingClassroom ? "Deleting classroom…" : "Delete classroom"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

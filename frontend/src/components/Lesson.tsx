@@ -10,10 +10,11 @@ type Props = {
   initialAnswers?: Record<string, string>;
   source?: "topic" | "document";
   documentMeta?: { title?: string; filename?: string };
+  quizOnly?: boolean;
 };
 const TABS = ["Explanation", "Flashcards", "Quiz"] as const;
 
-export default function Lesson({ lesson, sessionId, initialAnswers, source, documentMeta }: Props) {
+export default function Lesson({ lesson, sessionId, initialAnswers, source, documentMeta, quizOnly = false }: Props) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Explanation");
   const [viewed, setViewed] = useState<Set<string>>(new Set());
   const [currentLesson, setCurrentLesson] = useState(lesson);
@@ -41,6 +42,18 @@ export default function Lesson({ lesson, sessionId, initialAnswers, source, docu
       setRefining(false);
     }
   };
+  if (quizOnly) {
+    return (
+      <article>
+        <Quiz
+          lesson={currentLesson}
+          sessionId={sessionId}
+          initial={initialAnswers}
+          cards={viewed.size}
+        />
+      </article>
+    );
+  }
   return (
     <article>
       <header className="hero">
@@ -290,6 +303,7 @@ function Quiz({
   const [save, setSave] = useState<"idle" | "saving" | "saved" | "error">(
     initial ? "saved" : "idle",
   );
+  const allAnswered = q.every((question) => ans[question.id] !== undefined);
   const correct = useMemo(
     () => q.filter((x) => ans[x.id] === x.correctAnswer).length,
     [ans, q],
@@ -345,12 +359,11 @@ function Quiz({
     );
 
   const cur = q[i],
-    picked = ans[cur.id],
-    done = picked !== undefined;
+    picked = ans[cur.id];
   return (
     <div>
       <p className="meta">
-        Question {i + 1} of {q.length}
+        Question {i + 1} of {q.length} · {q.filter((question) => ans[question.id] !== undefined).length} answered
       </p>
       <h3 className="qtext">{cur.question}</h3>
       <div className="opts" role="radiogroup">
@@ -359,31 +372,27 @@ function Quiz({
             key={o}
             role="radio"
             aria-checked={picked === o}
-            disabled={done}
-            className={`opt ${done && o === cur.correctAnswer ? "ok" : ""} ${done && picked === o && o !== cur.correctAnswer ? "no" : ""}`}
+            className={`opt ${picked === o ? "selected" : ""}`}
             onClick={() => setAns({ ...ans, [cur.id]: o })}
           >
             {o}
           </button>
         ))}
       </div>
-      {done && (
-        <p className="panel">
-          <b>{picked === cur.correctAnswer ? "Correct." : "Not quite."}</b>{" "}
-          {cur.explanation}
-        </p>
-      )}
       <div className="actions">
-        {i < q.length - 1 ? (
-          <button className="btn" disabled={!done} onClick={() => setI(i + 1)}>
+        <button className="btn ghost" disabled={i === 0} onClick={() => setI(i - 1)}>
+          Previous
+        </button>
+        {i < q.length - 1 && (
+          <button className="btn" onClick={() => setI(i + 1)}>
             Next question
           </button>
-        ) : (
-          <button className="btn" disabled={!done} onClick={finish}>
-            Finish session
-          </button>
         )}
+        <button className="btn" disabled={!allAnswered || save === "saving"} onClick={finish}>
+          Submit quiz
+        </button>
       </div>
+      {!allAnswered && <p className="meta">Answer every question before submitting the quiz.</p>}
     </div>
   );
 }

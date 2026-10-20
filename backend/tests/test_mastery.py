@@ -51,7 +51,7 @@ def test_repeated_same_evidence_is_not_counted_twice_and_coverage_is_separate():
     normalization, transactions = progress["modules"][0]["topics"]
 
     assert normalization["mastery"]["evidenceCount"] == 1
-    assert normalization["mastery"]["state"] == "provisional"
+    assert normalization["mastery"]["state"] == "needs_improvement"
     assert normalization["coverage"] == "covered"
     assert transactions["coverage"] == "not_started"
     assert transactions["mastery"]["score"] is None
@@ -80,3 +80,18 @@ def test_faculty_analytics_uses_persisted_student_events():
     assert result["studentsWithEvidence"] == 1
     assert result["averageMastery"] == 90
     assert len(result["topics"]) == 1
+
+
+def test_concept_mastery_requires_two_mapped_questions_and_uses_strict_threshold():
+    modules = [{"id": "m", "title": "M", "topics": [{"id": "t", "title": "T", "concepts": [{"name": "3NF"}, {"name": "BCNF"}]}]}]
+    events = [
+        {"_id": "one-question", "topicId": "t", "conceptResults": {"3NF": {"total": 1, "correct": 1, "incorrect": 0, "unanswered": 0, "score": 100}}, "evaluationStatus": "complete", "masteryScore": 100, "coverage": True, "occurredAt": "2026-01-01T00:00:00+00:00"},
+        {"_id": "exactly-85", "topicId": "t", "conceptResults": {"3NF": {"total": 2, "correct": 1, "incorrect": 1, "unanswered": 0, "score": 85}}, "evaluationStatus": "complete", "masteryScore": 85, "coverage": True, "occurredAt": "2026-01-02T00:00:00+00:00"},
+    ]
+
+    topics = build_student_progress(modules, events)["modules"][0]["topics"][0]
+    concepts = {item["name"]: item["mastery"] for item in topics["concepts"]}
+
+    assert concepts["3NF"]["score"] == 85
+    assert concepts["3NF"]["state"] == "developing"
+    assert concepts["BCNF"]["score"] is None

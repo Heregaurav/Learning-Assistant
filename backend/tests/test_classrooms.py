@@ -19,16 +19,36 @@ class InMemoryCollection:
     def __init__(self):
         self.docs = []
 
+    @staticmethod
+    def _matches(doc, query):
+        for key, expected in (query or {}).items():
+            if key in doc:
+                actual = doc[key]
+            else:
+                actual = doc
+                for part in key.split("."):
+                    actual = actual.get(part) if isinstance(actual, dict) else None
+            if isinstance(expected, dict):
+                if "$ne" in expected and actual == expected["$ne"]:
+                    return False
+                if "$in" in expected and actual not in expected["$in"]:
+                    return False
+                if "$gt" in expected and (actual is None or actual <= expected["$gt"]):
+                    return False
+            elif actual != expected:
+                return False
+        return True
+
     def find_one(self, query=None, projection=None, sort=None):
         query = query or {}
         for doc in self.docs:
-            if all(doc.get(k) == v for k, v in query.items()):
+            if self._matches(doc, query):
                 return doc
         return None
 
     def find(self, query=None, projection=None, sort=None):
         query = query or {}
-        results = [doc for doc in self.docs if all(doc.get(k) == v for k, v in query.items())]
+        results = [doc for doc in self.docs if self._matches(doc, query)]
         if sort is not None:
             for field, direction in sort:
                 results.sort(key=lambda d: d.get(field, 0), reverse=direction == -1)
@@ -43,7 +63,7 @@ class InMemoryCollection:
         if overlapping_fields:
             raise AssertionError(f"Conflicting MongoDB update paths: {overlapping_fields}")
         for doc in self.docs:
-            if all(doc.get(k) == v for k, v in query.items()):
+            if self._matches(doc, query):
                 if "$set" in update:
                     doc.update(update["$set"])
                 if "$setOnInsert" in update:
@@ -71,11 +91,11 @@ class InMemoryCollection:
 
     def count_documents(self, query=None):
         query = query or {}
-        return sum(1 for doc in self.docs if all(doc.get(k) == v for k, v in query.items()))
+        return sum(1 for doc in self.docs if self._matches(doc, query))
 
     def delete_one(self, query):
         for idx, doc in enumerate(self.docs):
-            if all(doc.get(k) == v for k, v in query.items()):
+            if self._matches(doc, query):
                 del self.docs[idx]
                 return types.SimpleNamespace(deleted_count=1)
         return types.SimpleNamespace(deleted_count=0)
@@ -84,12 +104,15 @@ class InMemoryCollection:
         original_count = len(self.docs)
         self.docs[:] = [
             doc for doc in self.docs
-            if not all(doc.get(k) == v for k, v in query.items())
+            if not self._matches(doc, query)
         ]
         return types.SimpleNamespace(deleted_count=original_count - len(self.docs))
 
 
 def reset_db():
+    for timer in main._classroom_delete_timers.values():
+        timer.cancel()
+    main._classroom_delete_timers.clear()
     main.db = types.SimpleNamespace(
         users=InMemoryCollection(),
         sessions=InMemoryCollection(),
@@ -104,6 +127,7 @@ def reset_db():
         classroom_members=InMemoryCollection(),
         learning_events=InMemoryCollection(),
         learning_paths=InMemoryCollection(),
+        adaptive_tasks=InMemoryCollection(),
         client=types.SimpleNamespace(admin=types.SimpleNamespace(command=lambda *args, **kwargs: {"ok": 1})),
     )
     main.db.users.insert_one({"_id": "faculty-1", "name": "Faculty User", "email": "faculty@example.com", "role": "FACULTY"})
@@ -119,6 +143,37 @@ def _user(user_id: str):
         "email": main.db.users.find_one({"_id": user_id})["email"],
         "role": main.db.users.find_one({"_id": user_id}).get("role", "STUDENT"),
     }
+
+
+def _published_topic_for(student):
+    classroom = main.create_classroom(
+        {"name": "DBMS", "subject": "Database systems", "section": "A", "semester": "Fall", "description": ""},
+        _user("faculty-1"),
+    )
+    module = main.create_curriculum_module(
+        classroom["id"], main.CurriculumModuleIn(title="Relational design"), _user("faculty-1")
+    )
+    topic = main.create_curriculum_topic(
+        classroom["id"], module["id"],
+        main.CurriculumTopicIn(title="Normalization", concepts=[main.CurriculumConceptIn(name="3NF")]),
+        _user("faculty-1"),
+    )
+    main.publish_classroom_curriculum(classroom["id"], _user("faculty-1"))
+    main.join_classroom({"joinCode": classroom["joinCode"]}, student)
+    return classroom, module, topic
+
+
+def _fake_revision_lesson(*args, **kwargs):
+    return Lesson(
+        topic="Targeted revision",
+        explanation=Explanation(
+            overview="A focused explanation.",
+            sections=[Section(title="Core concept", content="Understand the dependency.")],
+            keyTakeaways=["Use the key dependency."],
+        ),
+        flashcards=[Flashcard(id="revision-1", question="What is the key?", answer="A dependency.")],
+        quiz=[QuizQuestion(id="r1", question="Which key?", options=["A", "B"], correctAnswer="A", explanation="It is A.")],
+    )
 
 
 def test_faculty_can_create_classroom_and_student_can_join():
@@ -190,7 +245,7 @@ def test_curriculum_stays_draft_until_owner_publishes_and_initializes_student_pa
     assert path["path"]["items"][0]["topicId"] == topic["id"]
 
 
-def test_only_classroom_owner_can_delete_and_related_data_is_removed():
+def test_classroom_delete_can_be_undone_before_purge():
     reset_db()
     owner = _user("faculty-1")
     student = _user("student-1")
@@ -209,9 +264,54 @@ def test_only_classroom_owner_can_delete_and_related_data_is_removed():
 
     result = main.delete_classroom(classroom["id"], owner)
     assert result["deleted"] is True
+    assert result["undoToken"]
+    assert classroom["id"] not in {item["id"] for item in main.list_classrooms(owner)}
+    assert main.db.classroom_modules.find_one({"classroomId": classroom["id"]}) is not None
+
+    restored = main.undo_delete_classroom(classroom["id"], result["undoToken"], owner)
+
+    assert restored["id"] == classroom["id"]
+    assert restored["name"] == "Networks"
+    assert classroom["id"] in {item["id"] for item in main.list_classrooms(owner)}
+    assert main.db.classroom_modules.find_one({"classroomId": classroom["id"]}) is not None
+    assert main.db.learning_paths.find_one({"classroomId": classroom["id"]}) is not None
+
+
+def test_classroom_delete_purges_related_data_after_undo_window():
+    reset_db()
+    owner = _user("faculty-1")
+    classroom = main.create_classroom(
+        {"name": "Networks", "subject": "CN", "section": "A", "semester": "Fall", "description": ""},
+        owner,
+    )
+    main.db.classroom_modules.insert_one({"_id": "module-1", "classroomId": classroom["id"]})
+    main.db.learning_paths.insert_one({"_id": "path-1", "classroomId": classroom["id"], "userId": "student-1"})
+
+    result = main.delete_classroom(classroom["id"], owner)
+    main.finalize_classroom_delete(classroom["id"], result["undoToken"])
+
     assert main.db.classrooms.find_one({"_id": classroom["id"]}) is None
     assert main.db.classroom_modules.find_one({"classroomId": classroom["id"]}) is None
     assert main.db.learning_paths.find_one({"classroomId": classroom["id"]}) is None
+
+
+def test_classroom_update_is_owner_or_faculty_scoped():
+    reset_db()
+    owner = _user("faculty-1")
+    classroom = main.create_classroom(
+        {"name": "Networks", "subject": "CN", "section": "A", "semester": "Fall", "description": "Old"},
+        owner,
+    )
+    changes = {"name": "Computer Networks", "subject": "Networking", "section": "B", "semester": "Spring", "description": "Updated course details"}
+
+    updated = main.update_classroom(classroom["id"], changes, owner)
+
+    assert updated["name"] == "Computer Networks"
+    assert updated["subject"] == "Networking"
+    assert updated["description"] == "Updated course details"
+    with pytest.raises(main.HTTPException) as denied:
+        main.update_classroom(classroom["id"], changes, _user("student-1"))
+    assert denied.value.status_code == 403
 
 
 def test_teacher_can_edit_published_curriculum_by_deleting_module_and_topic():
@@ -521,39 +621,470 @@ def test_classroom_topic_learning_reuses_curiosity_stream_and_persists_context(m
     assert saved["curriculumTopicId"] == topic["id"]
     assert saved["curriculumModuleId"] == module["id"]
     assert saved["concepts"] == ["3NF"]
+    assert saved["classroomSearch"] == "Explain it simply"
 
 
-def test_completed_classroom_quiz_records_learning_evidence():
+def test_classroom_topic_history_only_lists_current_users_saved_lessons():
     reset_db()
     student = _user("student-1")
+    other_student = _user("student-2")
+    classroom, module, topic = _published_topic_for(student)
+    other_topic = main.create_curriculum_topic(
+        classroom["id"], module["id"],
+        main.CurriculumTopicIn(title="Keys"),
+        _user("faculty-1"),
+    )
+    for session_record in [
+        {"_id": "lesson-old", "userId": student["id"], "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "topic": "Normalization", "classroomSearch": "Explain normalization simply", "createdAt": "2026-10-20T10:00:00Z", "learningContent": {"quiz": []}},
+        {"_id": "lesson-new", "userId": student["id"], "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "topic": "Normalization follow-up", "createdAt": "2026-10-21T10:00:00Z", "learningContent": {"quiz": []}},
+        {"_id": "other-user", "userId": other_student["id"], "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "topic": "Private lesson", "createdAt": "2026-10-22T10:00:00Z", "learningContent": {"quiz": []}},
+        {"_id": "other-topic", "userId": student["id"], "classroomId": classroom["id"], "curriculumTopicId": other_topic["id"], "topic": "Keys", "createdAt": "2026-10-23T10:00:00Z", "learningContent": {"quiz": []}},
+    ]:
+        main.db.sessions.insert_one(session_record)
+
+    history = main.classroom_topic_sessions(classroom["id"], topic["id"], student)
+
+    assert [item["id"] for item in history] == ["lesson-new", "lesson-old"]
+    assert "learningContent" not in history[0]
+    assert history[1]["search"] == "Explain normalization simply"
+
+
+def test_completed_classroom_quiz_records_learning_evidence(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
     main.db.sessions.insert_one(
         {
             "_id": "session-classroom-quiz",
             "userId": student["id"],
             "topicId": "topic-personal",
-            "classroomId": "class-1",
-            "curriculumTopicId": "curriculum-topic-1",
-            "curriculumModuleId": "module-1",
-            "concepts": ["3NF"],
-            "evaluation.completed": True,
-            "evaluation": {"completed": True, "score": 80},
+            "classroomId": classroom["id"],
+            "curriculumTopicId": topic["id"],
+            "curriculumModuleId": module["id"],
+            "learningContent": {"quiz": [
+                {"id": f"q{i}", "question": "Question", "options": ["A", "B"], "correctAnswer": "A", "conceptIds": ["3NF"]}
+                for i in range(5)
+            ]},
+            "evaluation": {"completed": False},
         }
     )
 
     result = main.complete(
         "session-classroom-quiz",
-        main.CompleteIn(correct=4, incorrect=1, total=5),
+        main.CompleteIn(correct=5, incorrect=0, total=5, answers={"q0": "A", "q1": "A", "q2": "A", "q3": "A", "q4": "B"}),
+        student,
+    )
+
+    event = main.db.learning_events.find_one({"_id": "learning_event_session_session-classroom-quiz"})
+    assert result["evaluation"]["score"] == 80
+    assert event["classroomId"] == classroom["id"]
+    assert event["topicId"] == topic["id"]
+    assert event["activityType"] == "curiosity_quiz"
+    assert event["masteryScore"] == 80
+
+
+def test_classroom_quiz_score_is_derived_from_saved_answer_key(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
+    main.db.sessions.insert_one(
+        {
+            "_id": "session-server-graded",
+            "userId": student["id"],
+            "topicId": "topic-personal",
+            "classroomId": classroom["id"],
+            "curriculumTopicId": topic["id"],
+            "curriculumModuleId": module["id"],
+            "learningContent": {
+                "quiz": [
+                    {"id": "q1", "correctAnswer": "A", "options": ["A", "B"], "conceptIds": ["3NF"]},
+                    {"id": "q2", "correctAnswer": "B", "options": ["A", "B"], "conceptIds": ["3NF"]},
+                ]
+            },
+            "evaluation": {"completed": False},
+        }
+    )
+
+    result = main.complete(
+        "session-server-graded",
+        main.CompleteIn(
+            correct=2,
+            incorrect=0,
+            total=2,
+            answers={"q1": "A", "q2": "A"},
+        ),
         student,
     )
 
     event = main.db.learning_events.find_one(
-        {"_id": "learning_event_session_session-classroom-quiz"}
+        {"_id": "learning_event_session_session-server-graded"}
     )
-    assert result["evaluation"]["score"] == 80
-    assert event["classroomId"] == "class-1"
-    assert event["topicId"] == "curriculum-topic-1"
-    assert event["activityType"] == "curiosity_quiz"
-    assert event["masteryScore"] == 80
+    assert result["evaluation"]["score"] == 50
+    assert result["evaluation"]["correct"] == 1
+    assert event["questionResults"] == [
+        {"questionId": "q1", "concepts": ["3NF"], "correct": True, "unanswered": False},
+        {"questionId": "q2", "concepts": ["3NF"], "correct": False, "unanswered": False},
+    ]
+    task = main.db.adaptive_tasks.find_one({"userId": student["id"], "topicId": topic["id"]})
+    assert task["conceptIds"] == ["3NF"]
+    assert task["mappingStatus"] == "mapped"
+    assert task["status"] == "ready"
+
+
+def _adaptive_task(classroom, module, topic, student, *, status="revision_complete"):
+    task_id = main._revision_task_id(classroom["id"], student["id"], topic["id"], ["3NF"])
+    task = {
+        "_id": task_id,
+        "id": task_id,
+        "classroomId": classroom["id"],
+        "userId": student["id"],
+        "moduleId": module["id"],
+        "topicId": topic["id"],
+        "conceptIds": ["3NF"],
+        "weakQuestionIds": ["old-q"],
+        "weakQuestionTexts": ["Explain 3NF"],
+        "mappingStatus": "mapped",
+        "status": status,
+        "generationStatus": "ready",
+        "revisionContent": _fake_revision_lesson().model_dump(),
+        "provider": "groq",
+        "model": "qwen/qwen3.8-27b",
+    }
+    main.db.adaptive_tasks.insert_one(task)
+    return task
+
+
+def _fresh_retest_questions(*args, **kwargs):
+    return [
+        QuizQuestion(id=f"fresh-{index}", question=f"New question {index}", options=["A", "B"], correctAnswer="A", explanation="A is correct.", conceptIds=["3NF"])
+        for index in range(1, 4)
+    ]
+
+
+def test_passing_retest_requires_strict_score_and_mapped_coverage(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    task = _adaptive_task(classroom, module, topic, student)
+    monkeypatch.setattr(main, "generate_retest_quiz", _fresh_retest_questions)
+    retest = main.create_adaptive_retest(classroom["id"], task["id"], student)
+    session = main.db.sessions.find_one({"_id": retest["sessionId"]})
+    assert len(session["learningContent"]["quiz"]) == 3
+    result = main.complete(
+        retest["sessionId"],
+        main.CompleteIn(answers={question["id"]: "A" for question in session["learningContent"]["quiz"]}),
+        student,
+    )
+
+    saved_task = main.db.adaptive_tasks.find_one({"_id": task["id"]})
+    assert result["evaluation"]["score"] == 100
+    assert saved_task["status"] == "mastered"
+    assert saved_task["lastRetestScore"] == 100
+    progress = main.classroom_progress(classroom["id"], student)
+    assert progress["revisionTasks"] == []
+    assert progress["revisionHistory"][0]["id"] == task["id"]
+    assert progress["revisionHistory"][0]["status"] == "mastered"
+    assert progress["revisionHistory"][0]["revisionContent"]
+    assert progress["learningPath"]["items"][0]["status"] == "completed"
+
+
+def test_successful_regular_assessment_resolves_matching_active_weakness(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    task = _adaptive_task(classroom, module, topic, student)
+    session_id = "regular-success-after-weakness"
+    main.db.sessions.insert_one({
+        "_id": session_id, "userId": student["id"], "topicId": "personal-topic",
+        "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "curriculumModuleId": module["id"],
+        "learningContent": {"quiz": [
+            {"id": "q1", "options": ["A", "B"], "correctAnswer": "A", "conceptIds": ["3NF"]},
+            {"id": "q2", "options": ["A", "B"], "correctAnswer": "B", "conceptIds": ["3NF"]},
+        ]}, "evaluation": {"completed": False},
+    })
+
+    main.complete(session_id, main.CompleteIn(answers={"q1": "A", "q2": "B"}), student)
+
+    assert main.db.adaptive_tasks.find_one({"_id": task["id"]})["status"] == "mastered"
+
+
+def test_later_failed_assessment_reopens_previously_mastered_weakness(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    task = _adaptive_task(classroom, module, topic, student, status="mastered")
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
+    session_id = "regression-after-mastery"
+    main.db.sessions.insert_one({
+        "_id": session_id, "userId": student["id"], "topicId": "personal-topic",
+        "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "curriculumModuleId": module["id"],
+        "learningContent": {"quiz": [
+            {"id": "q1", "options": ["A", "B"], "correctAnswer": "A", "conceptIds": ["3NF"]},
+            {"id": "q2", "options": ["A", "B"], "correctAnswer": "B", "conceptIds": ["3NF"]},
+        ]}, "evaluation": {"completed": False},
+    })
+
+    main.complete(session_id, main.CompleteIn(answers={"q1": "B", "q2": "B"}), student)
+
+    reopened = main.db.adaptive_tasks.find_one({"_id": task["id"]})
+    assert reopened["status"] == "ready"
+    assert len(reopened["attemptHistory"]) == 1
+
+
+def test_repeated_retest_request_returns_same_uncompleted_attempt(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    task = _adaptive_task(classroom, module, topic, student)
+    monkeypatch.setattr(main, "generate_retest_quiz", _fresh_retest_questions)
+
+    first = main.create_adaptive_retest(classroom["id"], task["id"], student)
+    second = main.create_adaptive_retest(classroom["id"], task["id"], student)
+
+    assert first["sessionId"] == second["sessionId"]
+    assert second["idempotent"] is True
+    assert len(main.db.sessions.find({"adaptiveTaskId": task["id"]})) == 1
+
+
+def test_concurrent_retest_generation_is_rejected_without_second_ai_call(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    task = _adaptive_task(classroom, module, topic, student)
+    main.db.adaptive_tasks.update_one(
+        {"_id": task["id"]},
+        {"$set": {"status": "generating_retest", "retestGenerationStartedAt": main.now()}},
+    )
+    calls = {"count": 0}
+    monkeypatch.setattr(main, "generate_retest_quiz", lambda *args, **kwargs: calls.__setitem__("count", calls["count"] + 1))
+
+    with pytest.raises(main.HTTPException) as preparing:
+        main.create_adaptive_retest(classroom["id"], task["id"], student)
+
+    assert preparing.value.status_code == 409
+    assert calls["count"] == 0
+
+
+def test_targeted_retest_requires_persisted_revision_completion(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    task = _adaptive_task(classroom, module, topic, student, status="ready")
+    monkeypatch.setattr(main, "generate_retest_quiz", _fresh_retest_questions)
+
+    with pytest.raises(main.HTTPException) as blocked:
+        main.create_adaptive_retest(classroom["id"], task["id"], student)
+    assert blocked.value.status_code == 409
+    completed = main.complete_adaptive_revision(classroom["id"], task["id"], student)
+    assert completed["status"] == "revision_complete"
+    attempt = main.create_adaptive_retest(classroom["id"], task["id"], student)
+    assert attempt["sessionId"]
+
+
+def test_failed_retest_keeps_task_active_and_regenerates_revision(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    task = _adaptive_task(classroom, module, topic, student)
+    monkeypatch.setattr(main, "generate_retest_quiz", _fresh_retest_questions)
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
+    retest = main.create_adaptive_retest(classroom["id"], task["id"], student)
+    session = main.db.sessions.find_one({"_id": retest["sessionId"]})
+    main.complete(
+        retest["sessionId"],
+        main.CompleteIn(answers={question["id"]: "B" for question in session["learningContent"]["quiz"]}),
+        student,
+    )
+
+    saved_task = main.db.adaptive_tasks.find_one({"_id": task["id"]})
+    assert saved_task["status"] == "ready"
+    assert saved_task["lastRetestScore"] == 0
+    assert saved_task["revisionContent"]["topic"] == "Targeted revision"
+
+
+def test_assessment_and_revision_task_are_idempotent(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
+    session_id = "idempotent-quiz"
+    main.db.sessions.insert_one({
+        "_id": session_id, "userId": student["id"], "topicId": "personal-topic",
+        "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "curriculumModuleId": module["id"],
+        "learningContent": {"quiz": [
+            {"id": "q1", "options": ["A", "B"], "correctAnswer": "A", "conceptIds": ["3NF"]},
+            {"id": "q2", "options": ["A", "B"], "correctAnswer": "B", "conceptIds": ["3NF"]},
+        ]}, "evaluation": {"completed": False},
+    })
+    submission = main.CompleteIn(answers={"q1": "B", "q2": "B"})
+    first = main.complete(session_id, submission, student)
+    second = main.complete(session_id, submission, student)
+
+    assert first["evaluation"]["score"] == 50
+    assert second["idempotent"] is True
+    assert len(main.db.learning_events.find({"sourceSessionId": session_id})) == 1
+    assert len(main.db.adaptive_tasks.find({"userId": student["id"], "topicId": topic["id"]})) == 1
+
+
+def test_duplicate_completion_resumes_pending_orchestration(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
+    session_id = "resume-orchestration"
+    main.db.sessions.insert_one({
+        "_id": session_id, "userId": student["id"], "topicId": "personal-topic",
+        "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "curriculumModuleId": module["id"],
+        "learningContent": {"quiz": [
+            {"id": "q1", "options": ["A", "B"], "correctAnswer": "A", "conceptIds": ["3NF"]},
+            {"id": "q2", "options": ["A", "B"], "correctAnswer": "B", "conceptIds": ["3NF"]},
+        ]}, "evaluation": {"completed": False},
+    })
+    original = main._orchestrate_classroom_assessment
+    calls = {"count": 0}
+
+    def fail_once(session, event, acting_user):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("simulated interruption")
+        return original(session, event, acting_user)
+
+    monkeypatch.setattr(main, "_orchestrate_classroom_assessment", fail_once)
+    payload = main.CompleteIn(answers={"q1": "B", "q2": "B"})
+    with pytest.raises(RuntimeError):
+        main.complete(session_id, payload, student)
+    assert main.db.sessions.find_one({"_id": session_id})["orchestrationStatus"] == "pending"
+
+    result = main.complete(session_id, payload, student)
+
+    assert result["evaluation"]["score"] == 50
+    assert main.db.sessions.find_one({"_id": session_id})["orchestrationStatus"] == "ready"
+    assert main.db.learning_events.find_one({"sourceSessionId": session_id}) is not None
+    assert main.db.adaptive_tasks.find_one({"userId": student["id"], "topicId": topic["id"]}) is not None
+
+
+def test_revision_generation_claim_suppresses_duplicate_provider_call(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    task = _adaptive_task(classroom, module, topic, student, status="pending")
+    task["generationStatus"] = "generating"
+    task["generationToken"] = "active-claim"
+    task["generationStartedAt"] = main.now()
+    calls = {"count": 0}
+    monkeypatch.setattr(main, "generate_lesson", lambda *args, **kwargs: calls.__setitem__("count", calls["count"] + 1))
+
+    result = main.generate_adaptive_revision(classroom["id"], task["id"], student)
+
+    assert result["generationStatus"] == "generating"
+    assert calls["count"] == 0
+
+
+def test_failed_revision_generation_preserves_assessment_evidence(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    monkeypatch.setattr(main, "generate_lesson", lambda *args, **kwargs: (_ for _ in ()).throw(main.LLMError("llm_failed", "offline")))
+    session_id = "provider-failure-quiz"
+    main.db.sessions.insert_one({
+        "_id": session_id, "userId": student["id"], "topicId": "personal-topic",
+        "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "curriculumModuleId": module["id"],
+        "learningContent": {"quiz": [
+            {"id": "q1", "options": ["A", "B"], "correctAnswer": "A", "conceptIds": ["3NF"]},
+            {"id": "q2", "options": ["A", "B"], "correctAnswer": "B", "conceptIds": ["3NF"]},
+        ]}, "evaluation": {"completed": False},
+    })
+
+    result = main.complete(session_id, main.CompleteIn(answers={"q1": "B", "q2": "B"}), student)
+
+    event = main.db.learning_events.find_one({"sourceSessionId": session_id})
+    task = main.db.adaptive_tasks.find_one({"userId": student["id"], "topicId": topic["id"]})
+    assert result["evaluation"]["score"] == 50
+    assert event["questionResults"][0]["correct"] is False
+    assert task["status"] == "failed"
+    assert task["generationError"] == "llm_failed"
+
+
+def test_unmapped_question_creates_topic_fallback_not_concept_evidence(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
+    session_id = "unmapped-quiz"
+    main.db.sessions.insert_one({
+        "_id": session_id, "userId": student["id"], "topicId": "personal-topic",
+        "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "curriculumModuleId": module["id"],
+        "learningContent": {"quiz": [
+            {"id": "q1", "options": ["A", "B"], "correctAnswer": "A", "conceptIds": ["Invented concept"]},
+            {"id": "q2", "options": ["A", "B"], "correctAnswer": "B", "conceptIds": ["Invented concept"]},
+        ]}, "evaluation": {"completed": False},
+    })
+    main.complete(session_id, main.CompleteIn(answers={"q1": "B", "q2": "B"}), student)
+
+    event = main.db.learning_events.find_one({"sourceSessionId": session_id})
+    task = main.db.adaptive_tasks.find_one({"userId": student["id"], "topicId": topic["id"]})
+    assert event["concepts"] == []
+    assert event["mappingStatus"] == "insufficient"
+    assert task["conceptIds"] == []
+    assert task["mappingStatus"] == "insufficient"
+
+
+def test_one_students_events_do_not_change_another_students_path():
+    reset_db()
+    student = _user("student-1")
+    other = _user("student-2")
+    classroom, module, topic = _published_topic_for(student)
+    main.join_classroom({"joinCode": classroom["joinCode"]}, other)
+    main.db.learning_events.insert_one({
+        "_id": "other-student-evidence", "userId": other["id"], "classroomId": classroom["id"],
+        "moduleId": module["id"], "topicId": topic["id"], "activityType": "quiz",
+        "evaluationStatus": "complete", "masteryScore": 100, "coverage": True,
+    })
+
+    progress = main.classroom_progress(classroom["id"], student)
+
+    assert progress["learningPath"]["items"][0]["status"] == "available"
+    assert progress["learningPath"]["items"][0]["mastery"]["score"] is None
+
+
+def test_faculty_progress_endpoint_payload_contains_authoritative_revision_state(monkeypatch):
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
+    session_id = "progress-contract-quiz"
+    main.db.sessions.insert_one({
+        "_id": session_id, "userId": student["id"], "topicId": "personal-topic",
+        "classroomId": classroom["id"], "curriculumTopicId": topic["id"], "curriculumModuleId": module["id"],
+        "learningContent": {"quiz": [
+            {"id": "q1", "options": ["A", "B"], "correctAnswer": "A", "conceptIds": ["3NF"]},
+            {"id": "q2", "options": ["A", "B"], "correctAnswer": "B", "conceptIds": ["3NF"]},
+        ]}, "evaluation": {"completed": False},
+    })
+    main.complete(session_id, main.CompleteIn(answers={"q1": "B", "q2": "B"}), student)
+
+    progress = main.classroom_progress(classroom["id"], student)
+
+    assert progress["revisionTasks"][0]["status"] == "ready"
+    assert progress["revisionTasks"][0]["revisionContent"]["topic"] == "Targeted revision"
+    assert progress["revisionTasks"][0]["revisionContent"]["flashcards"][0]["question"] == "What is the key?"
+    assert progress["revisionTasks"][0]["id"] == progress["revisionTasks"][0]["_id"]
+    assert progress["learningPath"]["items"][0]["status"] == "revision_needed"
+
+
+def test_revision_materials_remain_visible_after_new_progress_read():
+    reset_db()
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    task = _adaptive_task(classroom, module, topic, student)
+    first = main.classroom_progress(classroom["id"], student)
+    second = main.classroom_progress(classroom["id"], student)
+
+    assert first["revisionTasks"][0]["id"] == task["id"]
+    assert second["revisionTasks"][0]["revisionContent"]["topic"] == "Targeted revision"
+    assert second["revisionTasks"][0]["revisionContent"]["flashcards"][0]["answer"] == "A dependency."
 
 
 def test_classwork_submission_privacy_and_faculty_grade_release():
@@ -610,6 +1141,40 @@ def test_classwork_submission_privacy_and_faculty_grade_release():
     released_result = main.list_classroom_submissions(classroom["id"], assessment["id"], first_student)[0]
     assert released_result["score"] == 16
     assert released_result["feedback"] == "Good explanation"
+
+
+def test_low_faculty_grade_creates_topic_scoped_revision_without_mastery(monkeypatch):
+    reset_db()
+    faculty = _user("faculty-1")
+    student = _user("student-1")
+    classroom, module, topic = _published_topic_for(student)
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
+    assessment = main.create_classroom_assessment(
+        classroom["id"],
+        main.ClassroomAssessmentIn(
+            title="Explain 3NF", kind="assignment", topicId=topic["id"], conceptIds=["3NF"],
+            maxMarks=10, published=True,
+        ),
+        faculty,
+    )
+    submission = main.submit_classroom_assessment(
+        classroom["id"], assessment["id"], main.ClassroomSubmissionIn(answer="An incomplete answer"), student
+    )
+
+    main.grade_classroom_submission(
+        classroom["id"], assessment["id"], submission["id"],
+        main.ClassroomGradeIn(score=8, feedback="Review dependencies", release=False), faculty,
+    )
+
+    event = main.db.learning_events.find_one({"sourceSubmissionId": submission["id"]})
+    task = main.db.adaptive_tasks.find_one({"userId": student["id"], "topicId": topic["id"]})
+    progress = main.classroom_progress(classroom["id"], student)
+    assert event["coverage"] is False
+    assert event["concepts"] == ["3NF"]
+    assert task["conceptIds"] == ["3NF"]
+    assert progress["learningPath"]["items"][0]["status"] == "revision_needed"
+    assert progress["learningPath"]["items"][0]["mastery"]["score"] is None
+    assert progress["modules"][0]["topics"][0]["mastery"]["score"] is None
 
 
 def test_student_progress_graph_and_faculty_analytics_are_scoped_to_classroom():
@@ -679,6 +1244,7 @@ def test_student_progress_graph_and_faculty_analytics_are_scoped_to_classroom():
                 "moduleId": module["id"],
                 "topicId": completed_topic["id"],
                 "concepts": ["3NF"],
+                    "conceptResults": {"3NF": {"score": score, "total": 2, "correct": 2, "incorrect": 0, "unanswered": 0}},
                 "activityType": activity,
                 "evidenceType": "assessment",
                 "masteryScore": score,
@@ -695,6 +1261,7 @@ def test_student_progress_graph_and_faculty_analytics_are_scoped_to_classroom():
                 "moduleId": module["id"],
                 "topicId": struggling_topic["id"],
                 "concepts": ["Index scans"],
+                    "conceptResults": {"Index scans": {"score": 35, "total": 2, "correct": 0, "incorrect": 2, "unanswered": 0}},
                 "activityType": activity,
                 "evidenceType": "assessment",
                 "masteryScore": 35,
@@ -747,6 +1314,7 @@ def test_ai_evaluation_preserves_submission_and_records_private_evidence(monkeyp
         main.CurriculumTopicIn(title="Normalization", concepts=[main.CurriculumConceptIn(name="3NF")]),
         faculty,
     )
+    main.publish_classroom_curriculum(classroom["id"], faculty)
     assessment = main.create_classroom_assessment(
         classroom["id"],
         main.ClassroomAssessmentIn(title="Explain 3NF", kind="assignment", topicId=topic["id"], conceptIds=["3NF"], maxMarks=10, published=True),
@@ -762,6 +1330,7 @@ def test_ai_evaluation_preserves_submission_and_records_private_evidence(monkeyp
         "evaluate_written_answer",
         lambda **_: {"score": 8, "conceptScores": {"3NF": 80}, "strengths": [], "misconceptions": [], "feedback": "Good.", "recommendedTopics": []},
     )
+    monkeypatch.setattr(main, "generate_lesson", _fake_revision_lesson)
 
     result = main.evaluate_classroom_submission(
         classroom["id"], assessment["id"], submission["id"], faculty
