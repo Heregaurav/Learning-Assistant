@@ -217,7 +217,14 @@ export default function ClassroomKnowledgeGraph({ graph, selectedNodeId, onSelec
       </div>
 
       {!isDesktop ? (
-        <MobileGraph nodes={data.nodes} moduleColors={moduleColors} selectedNodeId={selectedNodeId} onSelect={onSelect} />
+        <MobileGraph
+          nodes={data.nodes}
+          edges={data.edges}
+          positions={positions}
+          moduleColors={moduleColors}
+          selectedNodeId={selectedNodeId}
+          onSelect={onSelect}
+        />
       ) : !webglAvailable ? (
         <p className="rounded-xl border border-primary/15 bg-black/20 px-4 py-5 text-sm text-primary/70">3D rendering is unavailable in this browser. Use the module list above and select a topic to inspect its details.</p>
       ) : (
@@ -253,15 +260,72 @@ function supportsWebGL() {
   }
 }
 
-function MobileGraph({ nodes, moduleColors, selectedNodeId, onSelect }: { nodes: KnowledgeGraphNode[]; moduleColors: Record<string, string>; selectedNodeId: string; onSelect: (id: string) => void }) {
+function MobileGraph({ nodes, edges, positions, moduleColors, selectedNodeId, onSelect }: {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+  positions: Record<string, Position>;
+  moduleColors: Record<string, string>;
+  selectedNodeId: string;
+  onSelect: (id: string) => void;
+}) {
+  const width = 360;
+  const height = 250;
+  const padding = 38;
+  const graphPoints = nodes.map((node, index) => ({
+    node,
+    position: positions[node.id] ?? [Math.cos(index * 2.4) * 0.8, Math.sin(index * 2.4) * 0.8, 0] as Position,
+  }));
+  const xValues = graphPoints.map(({ position }) => position[0]);
+  const yValues = graphPoints.map(({ position }) => position[1]);
+  const minX = Math.min(...xValues, -1);
+  const maxX = Math.max(...xValues, 1);
+  const minY = Math.min(...yValues, -1);
+  const maxY = Math.max(...yValues, 1);
+  const rangeX = Math.max(maxX - minX, 0.1);
+  const rangeY = Math.max(maxY - minY, 0.1);
+  const scale = Math.min((width - padding * 2) / rangeX, (height - padding * 2) / rangeY);
+  const pointById = new Map(graphPoints.map(({ node, position }) => [node.id, {
+    x: width / 2 + (position[0] - (minX + maxX) / 2) * scale,
+    y: height / 2 - (position[1] - (minY + maxY) / 2) * scale,
+  }]));
+  const edgeList = edges.filter((edge) => pointById.has(edge.source) && pointById.has(edge.target));
+  const relatedNodes = new Set<string>(selectedNodeId ? [selectedNodeId] : []);
+  edgeList.forEach((edge) => {
+    if (edge.source === selectedNodeId) relatedNodes.add(edge.target);
+    if (edge.target === selectedNodeId) relatedNodes.add(edge.source);
+  });
+
   return (
-    <div className="grid gap-2 md:hidden" aria-label="Completed topics in the knowledge graph">
-      {nodes.map((node) => (
-        <button key={node.id} type="button" aria-pressed={selectedNodeId === node.id} onClick={() => onSelect(node.id)} className={`flex w-full items-start gap-3 rounded-lg border p-3 text-left ${selectedNodeId === node.id ? "border-primary/35 bg-primary/10" : "border-primary/12 bg-black/20"}`}>
-          <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: moduleColors[node.moduleId] ?? moduleColor(node.moduleId) }} />
-          <span className="min-w-0 flex-1"><span className="block break-words text-sm text-primary/90">{node.label}</span><span className="mt-1 block text-xs text-primary/55">{node.moduleName} · {node.mastery.score === null ? (node.started ? "Started · no assessment evidence" : "No assessment evidence") : `${node.mastery.score}% mastery · ${node.mastery.state}`}</span></span>
-        </button>
-      ))}
+    <div className="grid gap-3 md:hidden" aria-label="Mobile classroom knowledge graph">
+      <div className="overflow-hidden rounded-xl border border-primary/20 bg-[#0b1115] p-2">
+        <svg viewBox={`0 0 ${width} ${height}`} className="block h-auto max-h-[min(62vw,280px)] w-full" role="group" aria-label="Interactive classroom knowledge graph">
+          {edgeList.map((edge) => {
+            const source = pointById.get(edge.source);
+            const target = pointById.get(edge.target);
+            const sourceNode = nodes.find((node) => node.id === edge.source);
+            if (!source || !target || !sourceNode) return null;
+            const emphasized = !selectedNodeId || (relatedNodes.has(edge.source) && relatedNodes.has(edge.target));
+            return <line key={`${edge.source}-${edge.target}-${edge.kind}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke={moduleColors[sourceNode.moduleId] ?? moduleColor(sourceNode.moduleId)} strokeWidth={edge.kind === "prerequisite" ? 1.8 : 1.2} strokeOpacity={emphasized ? 0.55 : 0.12} />;
+          })}
+          {graphPoints.map(({ node }) => {
+            const point = pointById.get(node.id);
+            if (!point) return null;
+            const selected = node.id === selectedNodeId;
+            const color = moduleColors[node.moduleId] ?? moduleColor(node.moduleId);
+            return (
+              <g key={node.id} role="button" tabIndex={0} aria-label={`Select ${node.label}, ${node.moduleName}`} aria-pressed={selected} onClick={() => onSelect(node.id)} onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(node.id);
+                }
+              }} className="cursor-pointer">
+                {selected && <circle cx={point.x} cy={point.y} r={13} fill={color} fillOpacity={0.18} />}
+                <circle cx={point.x} cy={point.y} r={selected ? 8 : node.kind === "topic" ? 6 : 4.5} fill={color} fillOpacity={selected || !selectedNodeId || relatedNodes.has(node.id) ? 1 : 0.35} stroke={selected ? "#f8f7ef" : "#0b1115"} strokeWidth={selected ? 2 : 1} />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
     </div>
   );
 }

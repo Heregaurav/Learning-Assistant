@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3 } from "lucide-react";
 import { CLASSROOM_PROGRESS_UPDATED, getClassroomAnalytics, getClassroomGraph, getClassroomProgress } from "../lib/api";
-import type { Role } from "../types";
+import type { KnowledgeGraphNode, Role } from "../types";
 
 const ClassroomKnowledgeGraph = lazy(() => import("../components/ClassroomKnowledgeGraph"));
 
@@ -91,6 +91,12 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
 
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId);
   const edgesForSelected = graph?.edges.filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId) ?? [];
+  const graphModules = new Map<string, { id: string; name: string; nodes: KnowledgeGraphNode[] }>();
+  graph?.nodes.forEach((node) => {
+    const group = graphModules.get(node.moduleId) ?? { id: node.moduleId, name: node.moduleName, nodes: [] };
+    group.nodes.push(node);
+    graphModules.set(node.moduleId, group);
+  });
   const weakTopics = progress?.learningPath.items.filter((item) =>
     item.status === "revision_needed" || item.status === "practice" || item.status === "locked",
   ) ?? [];
@@ -257,10 +263,35 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
           <Suspense fallback={<p className="py-4 text-sm text-primary/70">Loading 3D graph…</p>}>
             <ClassroomKnowledgeGraph graph={graph} selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} />
           </Suspense>
-          <div className="mt-3 grid gap-4 md:grid-cols-[1fr_280px]">
-            <ul className="hidden gap-2 md:grid md:grid-cols-2">
-              {graph.nodes.map((node) => <li key={node.id}><button onClick={() => setSelectedNodeId(node.id)} className={`w-full border-l-2 px-3 py-3 text-left ${selectedNodeId === node.id ? "border-primary bg-primary/10" : "border-primary/25 bg-black/20"}`}><span className="block text-[10px] uppercase tracking-wide text-primary/65">{node.kind} · {node.started && !node.completed ? "started" : node.coverage}</span><span className="mt-1 block text-sm">{node.label}</span><span className="mt-1 block text-xs text-primary/75">{node.mastery.score === null ? (node.started ? "Started · no assessment evidence" : "No assessment evidence") : `${node.mastery.score}% · ${node.mastery.state} · ${node.mastery.confidence} confidence`}</span></button></li>)}
-            </ul>
+          <div className="mt-3 grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="min-w-0 divide-y divide-primary/15 border-y border-primary/15">
+              {[...graphModules.values()].map((module) => {
+                const topicCount = module.nodes.filter((node) => node.kind === "topic").length;
+                const isOpen = module.nodes.some((node) => node.id === selectedNodeId);
+                return (
+                  <details key={module.id} open={isOpen} className="group">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 hover:bg-white/5 [&::-webkit-details-marker]:hidden">
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-[#f2efe8]">{module.name}</span>
+                        <span className="mt-1 block text-xs text-primary/60">{topicCount} {topicCount === 1 ? "topic" : "topics"} · {module.nodes.length} graph nodes</span>
+                      </span>
+                      <span aria-hidden="true" className="shrink-0 text-xs text-primary/60 transition-transform group-open:rotate-180">⌄</span>
+                    </summary>
+                    <ul className="grid gap-2 px-2 pb-3 sm:grid-cols-2">
+                      {module.nodes.map((node) => (
+                        <li key={node.id}>
+                          <button type="button" aria-pressed={selectedNodeId === node.id} onClick={() => setSelectedNodeId(node.id)} className={`w-full border-l-2 px-3 py-3 text-left ${selectedNodeId === node.id ? "border-primary bg-primary/10" : "border-primary/25 bg-black/20"}`}>
+                            <span className="block text-[10px] uppercase tracking-wide text-primary/65">{node.kind} · {node.started && !node.completed ? "started" : node.coverage}</span>
+                            <span className="mt-1 block text-sm">{node.label}</span>
+                            <span className="mt-1 block text-xs text-primary/75">{node.mastery.score === null ? (node.started ? "Started · no assessment evidence" : "No assessment evidence") : `${node.mastery.score}% · ${node.mastery.state} · ${node.mastery.confidence} confidence`}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                );
+              })}
+            </div>
             <aside className="border-t border-primary/20 pt-3 md:border-l md:border-t-0 md:pl-4">
               {selectedNode ? <><p className="text-xs uppercase text-primary/65">Selected {selectedNode.kind}</p><h4 className="mt-1 font-medium">{selectedNode.label}</h4><p className="mt-1 text-xs text-primary/65">{selectedNode.moduleName}</p><p className="mt-2 text-sm text-[#D7D1B5]">{selectedNode.completed ? "Completed" : selectedNode.started ? "Started" : "Not started"} · {selectedNode.mastered ? "Mastered" : selectedNode.mastery.score === null ? "No assessment evidence" : `${selectedNode.mastery.score}% · ${selectedNode.mastery.state}`}</p><p className="mt-1 text-xs text-primary/60">Supporting evidence: {selectedNode.mastery.evidenceCount}</p><ul className="mt-2 grid gap-1 text-xs text-primary/70">{selectedNode.mastery.evidenceIds.map((id) => <li key={id}>{id}</li>)}</ul><p className="mt-3 text-xs text-primary/70">Relationships: {edgesForSelected.map((edge) => `${edge.kind} (${edge.source} → ${edge.target})`).join("; ") || "None"}</p></> : <p className="text-sm text-primary/70">Select a node to inspect its evidence.</p>}
             </aside>
