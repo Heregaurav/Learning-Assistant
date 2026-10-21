@@ -1113,6 +1113,8 @@ def test_classwork_submission_privacy_and_faculty_grade_release():
     submission = main.submit_classroom_assessment(
         classroom["id"], assessment["id"], main.ClassroomSubmissionIn(answer="My answer"), first_student
     )
+    faculty_submissions = main.list_classroom_submissions(classroom["id"], assessment["id"], faculty)
+    assert faculty_submissions[0]["studentName"] == "Student User"
     with pytest.raises(main.HTTPException) as duplicate:
         main.submit_classroom_assessment(
             classroom["id"], assessment["id"], main.ClassroomSubmissionIn(answer="Again"), first_student

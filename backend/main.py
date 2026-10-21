@@ -1190,6 +1190,9 @@ def list_classroom_submissions(classroom_id: str, assessment_id: str, user: dict
     result = []
     for row in db.classroom_submissions.find(query):
         item = {**{k: v for k, v in row.items() if k != "_id"}, "id": row["_id"]}
+        if editor:
+            student = db.users.find_one({"_id": item["studentId"]}) or {}
+            item["studentName"] = student.get("name") or "Student"
         if not editor and not item.get("released"):
             for key in ("score", "feedback", "aiEvaluation"):
                 item.pop(key, None)

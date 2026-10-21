@@ -20,6 +20,7 @@ const emptySubmissionMap: Record<string, ClassroomSubmission[]> = {};
 export default function ClassworkPanel({ classroomId, canEdit }: Props) {
   const [assessments, setAssessments] = useState<ClassroomAssessment[]>([]);
   const [submissions, setSubmissions] = useState(emptySubmissionMap);
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Record<string, string>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<ClassroomAssessment["kind"]>("assignment");
@@ -221,15 +222,53 @@ export default function ClassworkPanel({ classroomId, canEdit }: Props) {
                   onSubmit={() => void submitAnswer(assessment.id)}
                 />
               )}
-              {canEdit && (submissions[assessment.id] ?? []).map((submission) => (
-                <FacultySubmission
-                  key={submission.id}
-                  submission={submission}
-                  maxMarks={assessment.maxMarks}
-                  onGrade={(score, feedback, release) => void saveGrade(assessment.id, submission, score, feedback, release)}
-                  onEvaluate={() => void evaluateSubmission(assessment.id, submission.id)}
-                />
-              ))}
+              {canEdit && (() => {
+                const assessmentSubmissions = submissions[assessment.id] ?? [];
+                const selectedSubmission = assessmentSubmissions.find(
+                  (submission) => submission.id === selectedSubmissionIds[assessment.id],
+                );
+                return (
+                  <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(220px,0.32fr)_minmax(0,1fr)]">
+                    <div className="divide-y divide-primary/15 border-y border-primary/15">
+                      {assessmentSubmissions.length === 0 ? (
+                        <p className="py-4 text-sm text-primary/70">No submissions yet.</p>
+                      ) : assessmentSubmissions.map((submission) => {
+                        const displayedScore = submission.score ?? submission.aiEvaluation?.score;
+                        const isAiDraft = submission.score == null && submission.aiEvaluation != null;
+                        const isSelected = selectedSubmission?.id === submission.id;
+                        return (
+                          <button
+                            key={submission.id}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => setSelectedSubmissionIds((current) => ({ ...current, [assessment.id]: submission.id }))}
+                            className={`flex w-full items-center justify-between gap-3 px-3 py-3 text-left transition-colors ${isSelected ? "bg-primary/10" : "hover:bg-primary/5"}`}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium">{submission.studentName || `Student ${submission.studentId}`}</span>
+                              <span className="mt-1 block text-xs text-primary/65">{submission.status}</span>
+                            </span>
+                            <span className="shrink-0 text-right text-xs text-primary/80">
+                              {displayedScore == null ? "Not graded" : `${isAiDraft ? "AI draft · " : ""}${displayedScore} / ${assessment.maxMarks}`}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selectedSubmission ? (
+                      <FacultySubmission
+                        key={selectedSubmission.id}
+                        submission={selectedSubmission}
+                        maxMarks={assessment.maxMarks}
+                        onGrade={(score, feedback, release) => void saveGrade(assessment.id, selectedSubmission, score, feedback, release)}
+                        onEvaluate={() => void evaluateSubmission(assessment.id, selectedSubmission.id)}
+                      />
+                    ) : assessmentSubmissions.length > 0 ? (
+                      <p className="py-4 text-sm text-primary/70">Select a student to review their submission.</p>
+                    ) : null}
+                  </div>
+                );
+              })()}
             </article>
           ))}
         </div>
@@ -281,7 +320,7 @@ function FacultySubmission({
   const [release, setRelease] = useState(Boolean(submission.released));
   return (
     <div className="mt-4 grid gap-2 border-l-2 border-primary/30 pl-3">
-      <p className="text-xs text-primary/70">Student {submission.studentId} · {submission.status}</p>
+      <p className="text-xs text-primary/70">{submission.studentName || `Student ${submission.studentId}`} · {submission.status}</p>
       <p className="whitespace-pre-wrap text-sm text-[#D7D1B5]">{submission.answer}</p>
       {submission.aiEvaluation && (
         <div className="rounded-md border border-primary/20 bg-black/25 p-3 text-sm">

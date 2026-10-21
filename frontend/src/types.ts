@@ -210,6 +210,7 @@ export type ClassroomSubmission = {
   classroomId: string;
   assessmentId: string;
   studentId: string;
+  studentName?: string;
   answer?: string;
   status: string;
   evaluationStatus: string;
