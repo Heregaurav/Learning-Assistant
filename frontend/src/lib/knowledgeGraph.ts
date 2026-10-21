@@ -2,16 +2,16 @@ import type { ClassroomKnowledgeGraph, KnowledgeGraphEdge, KnowledgeGraphNode } 
 
 export type GraphLayout = "modules" | "dependencies" | "free";
 
-export function moduleColor(moduleId: string): string {
+const modulePalette = ["#ff5b55", "#35d07f", "#ffd166", "#4da3ff", "#ff8c42", "#b6e36b", "#22c1c3", "#f472b6"];
+
+export function moduleColor(moduleId: string, paletteIndex?: number): string {
   let hash = 2166136261;
   for (const character of moduleId) {
     hash ^= character.charCodeAt(0);
     hash = Math.imul(hash, 16777619);
   }
-  const hue = Math.abs(hash) % 360;
-  const saturation = 62 + ((hash >>> 8) % 13);
-  const lightness = 58 + ((hash >>> 16) % 9);
-  return `hsl(${hue} ${saturation}% ${lightness}%)`;
+  const index = paletteIndex ?? (hash >>> 0) % modulePalette.length;
+  return modulePalette[index % modulePalette.length];
 }
 
 export function visibleGraph(

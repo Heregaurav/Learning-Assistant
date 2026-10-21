@@ -25,11 +25,11 @@ type User = {
 const GUEST_ID_KEY = "curiosity.guest-id";
 const THEME_KEY = "curiosity.theme";
 type ThemeMode = "cinematic" | "plain" | "dark";
-const themeCycle: ThemeMode[] = ["cinematic", "plain", "dark"];
+const themeCycle: ThemeMode[] = ["plain", "dark", "cinematic"];
 const nextTheme: Record<ThemeMode, ThemeMode> = {
-  cinematic: "plain",
   plain: "dark",
   dark: "cinematic",
+  cinematic: "plain",
 };
 const themeLabel: Record<ThemeMode, string> = {
   cinematic: "Cinematic",
@@ -123,7 +123,7 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_KEY) as ThemeMode | null;
-    return saved && themeCycle.includes(saved) ? saved : "cinematic";
+    return saved && themeCycle.includes(saved) ? saved : "plain";
   });
   const [videoPaused, setVideoPaused] = useState(false);
   const [pictureFailed, setPictureFailed] = useState(false);

@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import type { ReactNode } from "react";
 import { motion, useInView } from "framer-motion";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check, ClipboardCheck, FileText, Network, Sparkles } from "lucide-react";
 
 type LandingProps = {
   onStart: () => void;
@@ -15,47 +15,41 @@ const featureVideo = heroVideo;
 const featureCards = [
   {
     number: "01",
-    title: "Structured Lessons",
+    title: "Learn from your material",
     items: [
-      "Understand the topic step by step",
-      "Turn notes into clear explanations",
-      "Focus on the concepts that matter",
-      "Learn without information overload",
+      "Start with a topic, notes, or a lecture summary",
+      "Upload PDF, DOCX, PPTX, TXT, or Markdown",
+      "Get clear explanations, examples, and key ideas",
+      "Refine a lesson when you need a different angle",
     ],
   },
   {
     number: "02",
-    title: "Flashcards & Quizzes",
+    title: "Practice with purpose",
     items: [
-      "Turn concepts into flashcards",
-      "Test your understanding",
-      "Get instant quiz results",
-      "Find what you need to revise",
+      "Review concepts with generated flashcards",
+      "Check understanding with a scored quiz",
+      "See explanations for missed questions",
+      "Retest to strengthen recall over time",
     ],
   },
   {
     number: "03",
-    title: "Progress That Matters",
+    title: "Keep your learning connected",
     items: [
-      "Track every learning session",
-      "See your scores over time",
+      "Save sessions and return from your history",
       "Follow progress across topics",
-      "Return to previous sessions",
+      "Reopen a lesson and pick up where you stopped",
+      "Use a personal profile for longer-term learning",
     ],
   },
 ];
 
-const providers = [
-  ["01", "GROQ", "Fast AI-powered lesson generation"],
-  ["02", "GEMINI", "Flexible AI learning assistance"],
-  ["03", "OPENROUTER", "Access multiple AI models"],
-];
-
 const flow = [
-  ["01", "INPUT", "Give it a topic, notes, or lecture summary."],
-  ["02", "LEARN", "Get a structured explanation built around the topic."],
-  ["03", "PRACTICE", "Review flashcards and take the quiz."],
-  ["04", "REFLECT", "See your score, progress, and areas to revisit."],
+  ["01", "BRING MATERIAL", "Enter a topic or add notes and course documents."],
+  ["02", "BUILD CONTEXT", "Get a structured lesson with examples and key ideas."],
+  ["03", "PRACTICE RECALL", "Use flashcards and a quiz to check what stuck."],
+  ["04", "RETURN & IMPROVE", "Review feedback, refine the lesson, and retest."],
 ];
 
 const ease = [0.16, 1, 0.3, 1] as const;
@@ -125,7 +119,7 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
             className="hero-nav absolute left-1/2 top-0 z-10 flex -translate-x-1/2 gap-3 rounded-b-2xl bg-black px-4 py-2 sm:gap-5 sm:px-6 md:gap-9 md:rounded-b-3xl md:px-8 lg:gap-12"
             aria-label="Primary navigation"
           >
-            {["Learn", "History", "Progress", "About"].map((item) => (
+            {["Learn", "History", "Progress", "About", "Contact"].map((item) => (
               <a
                 key={item}
                 className="whitespace-nowrap text-[10px] text-[rgba(225,224,204,.8)] transition-colors hover:text-[#E1E0CC] sm:text-xs md:text-sm"
@@ -136,7 +130,9 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
                       ? "#history"
                       : item === "Progress"
                         ? "#progress"
-                        : "#about"
+                        : item === "About"
+                          ? "#about"
+                          : "#contact"
                 }
               >
                 {item}
@@ -168,7 +164,7 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
             <div className="hero-aside">
               <Reveal delay={0.2}>
                 <p className="mb-5 text-xs leading-[1.35] text-primary/75 sm:text-sm md:text-base">
-                   Give us a topic. Get a complete learning experience
+                  Turn topics, class notes, and course documents into lessons you can study, practice, and revisit.
                 </p>
                 <button
                   className="group flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-black transition-all hover:gap-3 sm:text-base"
@@ -202,7 +198,7 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
 
       <section id="about" className="bg-black px-4 py-24 sm:px-6 md:py-36">
         <Reveal className="mx-auto max-w-5xl">
-          <SectionLabel>The idea</SectionLabel>
+          <SectionLabel>A study assistant, not another feed</SectionLabel>
           <h2 className="max-w-4xl text-4xl leading-[.95] tracking-[-.04em] sm:text-5xl md:text-6xl lg:text-7xl">
             Learning should feel less like collecting information, and more like{" "}
             <em className="font-serif not-italic text-primary">
@@ -210,10 +206,11 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
             </em>
           </h2>
           <p className="mt-10 max-w-2xl text-sm leading-relaxed text-gray-400 md:ml-auto md:text-base">
-            AI Learning Assistant turns your topics, notes, and lecture
-            summaries into structured learning experiences. Learn the concept,
-            test what you remember, see how you performed, and come back when
-            you&apos;re ready to continue.
+            Curiosity is an AI study assistant that turns a topic or your own
+            course material into a complete learning session: explanations,
+            examples, flashcards, and a quiz. Review what you missed, refine
+            the lesson, and come back to your saved progress when you&apos;re
+            ready to continue.
           </p>
         </Reveal>
       </section>
@@ -233,8 +230,9 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
               </em>
             </h2>
             <p className="mt-6 max-w-xl text-sm leading-relaxed text-gray-400 md:text-base">
-              From your first explanation to your next revision, each session is
-              built around understanding and recall.
+              One connected path from source material to understanding: learn
+              the idea, practice recalling it, and use feedback to choose what
+              to revisit.
             </p>
           </Reveal>
           <div className="mt-14 grid gap-3 md:grid-cols-3">
@@ -295,7 +293,52 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
         </div>
       </section>
 
-      <section className="bg-[#101010] px-4 py-24 sm:px-6 md:py-32">
+      <section id="classrooms" className="relative overflow-hidden bg-[#080a09] px-4 py-24 sm:px-6 md:py-32">
+        <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+          <Reveal>
+            <SectionLabel>Learning together</SectionLabel>
+            <h2 className="max-w-xl text-4xl leading-[.98] sm:text-5xl md:text-6xl">
+              Built for the classroom, too.
+            </h2>
+            <p className="mt-6 max-w-lg text-sm leading-relaxed text-gray-400 md:text-base">
+              Teachers can organize a course around modules and topics, share
+              classwork, review student submissions, and follow learning
+              evidence. Students keep their classroom learning and progress in
+              one place.
+            </p>
+            <button
+              className="mt-8 flex items-center gap-2 rounded-full border border-primary/40 px-5 py-3 text-sm text-primary transition-colors hover:bg-primary hover:text-black"
+              onClick={handleStart}
+            >
+              Explore Curiosity <ArrowRight size={16} />
+            </button>
+          </Reveal>
+          <div className="grid gap-px border border-white/10 bg-white/10 sm:grid-cols-2">
+            <Reveal className="min-h-48 bg-[#101311] p-6" delay={0.08}>
+              <Network className="text-primary" size={20} />
+              <h3 className="mt-8 text-lg font-medium">A shared course map</h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-400">Organize curriculum into modules, topics, concepts, and learning relationships.</p>
+            </Reveal>
+            <Reveal className="min-h-48 bg-[#101311] p-6" delay={0.16}>
+              <ClipboardCheck className="text-primary" size={20} />
+              <h3 className="mt-8 text-lg font-medium">Classwork & review</h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-400">Publish assignments, review submissions, and use AI feedback as a faculty review draft.</p>
+            </Reveal>
+            <Reveal className="min-h-48 bg-[#101311] p-6" delay={0.24}>
+              <FileText className="text-primary" size={20} />
+              <h3 className="mt-8 text-lg font-medium">Evidence over time</h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-400">See topic coverage, assessment evidence, and progress across a classroom.</p>
+            </Reveal>
+            <Reveal className="min-h-48 bg-[#101311] p-6" delay={0.32}>
+              <Sparkles className="text-primary" size={20} />
+              <h3 className="mt-8 text-lg font-medium">Guided next steps</h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-400">Connect learning needs to revision, practice, and topic retests.</p>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      <section id="workflow" className="bg-[#101010] px-4 py-24 sm:px-6 md:py-32">
         <div className="mx-auto max-w-6xl">
           <Reveal>
             <h2 className="text-4xl tracking-[-.04em] sm:text-5xl md:text-6xl">
@@ -327,7 +370,7 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
         <div className="mx-auto grid max-w-6xl gap-14 md:grid-cols-2">
           <Reveal>
             <SectionLabel>Your progress</SectionLabel>
-            <h2 className="max-w-xl text-4xl leading-[.95] tracking-[-.04em] sm:text-5xl md:text-6xl">
+            <h2 id="progress" className="max-w-xl text-4xl leading-[.95] tracking-[-.04em] sm:text-5xl md:text-6xl">
               Learning is a process, not a single session.
             </h2>
             <p className="mt-8 max-w-lg text-sm leading-relaxed text-gray-400 md:text-base">
@@ -376,17 +419,41 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
         </div>
       </section>
 
-      <footer className="landing-page-footer">
-        <div className="landing-page-footer-inner">
+      <footer id="contact" className="landing-page-footer">
+        <div className="landing-page-footer-main">
           <div className="landing-page-footer-brand">
-            <strong>curiosity</strong>
-            <span>A calmer way to understand.</span>
+            <a className="landing-footer-wordmark" href="#top" aria-label="Curiosity home">
+              <img src="/curiosity2.jpg" alt="" />
+              <strong>curiosity</strong>
+            </a>
+            <p>AI study assistant for learning from your topics, notes, and course materials.</p>
+            <span className="landing-footer-location">Online learning platform · Location: Online</span>
           </div>
-          <a href="mailto:gauravkumar0123zyx@gmail.com">
-            Have a question? Get in touch
-          </a>
+          <div className="landing-footer-column">
+            <h2>Explore</h2>
+            <a href="#about">About Curiosity</a>
+            <a href="#features">Learning tools</a>
+            <a href="#workflow">How it works</a>
+            <a href="#progress">Progress &amp; history</a>
+          </div>
+          <div className="landing-footer-column">
+            <h2>For learning</h2>
+            <a href="#features">Independent study</a>
+            <a href="#classrooms">Classrooms</a>
+            <a href="#classrooms">Assignments &amp; review</a>
+            <a href="#classrooms">Course progress</a>
+          </div>
+          <div className="landing-footer-column landing-footer-contact">
+            <h2>Contact</h2>
+            <p>Questions or feedback? Send us a note.</p>
+            <a href="mailto:gauravkumar0123zyx@gmail.com">gauravkumar0123zyx@gmail.com</a>
+            <address className="landing-footer-address">Sattur Colony,<br />IIIT Dharwad,<br />Dharwad, Karnataka 580009</address>
+          </div>
+        </div>
+        <div className="landing-page-footer-bottom">
+          <span>Curiosity · AI Study Assistant</span>
           <span>Learn · Practice · Improve</span>
-          <span>© 2026 curiosity</span>
+          <span>© {new Date().getFullYear()} Curiosity</span>
         </div>
       </footer>
     </div>
