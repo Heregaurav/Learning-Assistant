@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowRight, BookOpen, Menu, Pencil, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, BookOpen, Check, LoaderCircle, Menu, Pencil, Plus, Trash2, X } from "lucide-react";
 import {
   createCurriculumModule,
   createCurriculumTopic,
+  applyClassroomCurriculumDraft,
   CLASSROOM_PROGRESS_UPDATED,
   deleteClassroom,
   deleteCurriculumModule,
@@ -18,11 +19,14 @@ import ClassworkPanel from "./ClassworkPanel";
 import ClassroomInsights from "./ClassroomInsights";
 import ClassroomStream from "./ClassroomStream";
 import Learn from "./Learn";
+import { SkeletonClassroom } from "../components/Skeletons";
 import type { ClassroomCurriculum, ClassroomProgress, CurriculumTopic, Role } from "../types";
 
 type Props = {
   user: { id: string; role?: Role } | null;
 };
+
+type CurriculumDeleteTarget = { kind: "module" | "topic"; id: string; name: string };
 
 export default function ClassroomDetail({ user }: Props) {
   const { classroomId = "" } = useParams();
@@ -49,13 +53,24 @@ export default function ClassroomDetail({ user }: Props) {
   const [publishing, setPublishing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingClassroom, setDeletingClassroom] = useState(false);
+  const [curriculumDeleteTarget, setCurriculumDeleteTarget] = useState<CurriculumDeleteTarget | null>(null);
+  const [curriculumDeletePending, setCurriculumDeletePending] = useState(false);
+  const [curriculumDeleteStarted, setCurriculumDeleteStarted] = useState(false);
+  const [curriculumDeleteFeedback, setCurriculumDeleteFeedback] = useState<{ kind: "success" | "error" | "info"; message: string } | null>(null);
   const [editingClassroom, setEditingClassroom] = useState(false);
   const [savingClassroom, setSavingClassroom] = useState(false);
   const [classroomForm, setClassroomForm] = useState({ name: "", subject: "", section: "", semester: "", description: "" });
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  const cancelCurriculumDeleteRef = useRef<HTMLButtonElement>(null);
+  const curriculumDeleteTimerRef = useRef<number | null>(null);
+  const curriculumDeleteFeedbackTimerRef = useRef<number | null>(null);
+  const curriculumDeleteBusyRef = useRef(false);
+  const curriculumDeleteStartedRef = useRef(false);
   const [curriculumPrompt, setCurriculumPrompt] = useState("");
   const [draft, setDraft] = useState<{ modules: { title: string; description?: string; topics: Omit<CurriculumTopic, "id">[] }[] } | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [applyingDraft, setApplyingDraft] = useState(false);
+  const applyingDraftRef = useRef(false);
 
   const canEdit = Boolean(
     user &&
@@ -105,6 +120,29 @@ export default function ClassroomDetail({ user }: Props) {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [showDeleteConfirm, deletingClassroom]);
+
+  useEffect(() => {
+    if (!curriculumDeleteTarget || curriculumDeletePending) return;
+    cancelCurriculumDeleteRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !curriculumDeletePending) setCurriculumDeleteTarget(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [curriculumDeleteTarget, curriculumDeletePending]);
+
+  useEffect(() => {
+    setCurriculumDeleteTarget(null);
+    setCurriculumDeletePending(false);
+    setCurriculumDeleteStarted(false);
+    setCurriculumDeleteFeedback(null);
+    curriculumDeleteBusyRef.current = false;
+    curriculumDeleteStartedRef.current = false;
+    return () => {
+      if (curriculumDeleteTimerRef.current !== null) window.clearTimeout(curriculumDeleteTimerRef.current);
+      if (curriculumDeleteFeedbackTimerRef.current !== null) window.clearTimeout(curriculumDeleteFeedbackTimerRef.current);
+    };
+  }, [classroomId]);
 
   const refresh = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!silent) setLoading(true);
@@ -302,53 +340,110 @@ export default function ClassroomDetail({ user }: Props) {
   };
 
   const addDraftToCurriculum = async () => {
-    if (!draft) return;
+    if (!draft || applyingDraftRef.current) return;
+    applyingDraftRef.current = true;
+    setApplyingDraft(true);
     try {
-      for (const [moduleIndex, draftModule] of draft.modules.entries()) {
-        const module = await createCurriculumModule(classroomId, { title: draftModule.title, description: draftModule.description ?? "", position: (data?.modules.length ?? 0) + moduleIndex });
-        for (const topic of draftModule.topics) {
-          await createCurriculumTopic(classroomId, module.id, { ...topic, description: topic.description ?? "", learningObjectives: topic.learningObjectives ?? [], prerequisites: topic.prerequisites ?? [], concepts: topic.concepts ?? [], materials: topic.materials ?? [] });
-        }
-      }
+      setError("");
+      const updatedCurriculum = await applyClassroomCurriculumDraft(classroomId, {
+        modules: draft.modules.map((module) => ({
+          title: module.title,
+          description: module.description ?? "",
+          topics: module.topics.map((topic) => ({
+            ...topic,
+            description: topic.description ?? "",
+            learningObjectives: topic.learningObjectives ?? [],
+            prerequisites: topic.prerequisites ?? [],
+            concepts: topic.concepts ?? [],
+            materials: topic.materials ?? [],
+          })),
+        })),
+      });
+      setData(updatedCurriculum);
       setDraft(null);
       setNotice("AI draft added as editable curriculum content. Review it before publishing.");
-      await refresh({ silent: true });
     } catch (reason) {
       setError((reason as Error).message || "Unable to add curriculum draft.");
+    } finally {
+      applyingDraftRef.current = false;
+      setApplyingDraft(false);
     }
   };
 
-  const removeCurriculumModule = async (moduleId: string) => {
-    if (!window.confirm("Delete this module and all of its topics from the published curriculum?")) return;
-    setError("");
+  const showCurriculumDeleteFeedback = (kind: "success" | "error" | "info", message: string) => {
+    if (curriculumDeleteFeedbackTimerRef.current !== null) window.clearTimeout(curriculumDeleteFeedbackTimerRef.current);
+    setCurriculumDeleteFeedback({ kind, message });
+    curriculumDeleteFeedbackTimerRef.current = window.setTimeout(() => {
+      setCurriculumDeleteFeedback(null);
+      curriculumDeleteFeedbackTimerRef.current = null;
+    }, 4500);
+  };
+
+  const finishCurriculumDelete = async (target: CurriculumDeleteTarget) => {
+    curriculumDeleteStartedRef.current = true;
+    setCurriculumDeleteStarted(true);
+    curriculumDeleteTimerRef.current = null;
     try {
-      await deleteCurriculumModule(classroomId, moduleId);
-      if (selectedTopicId) {
-        setSelectedTopicId("");
+      if (target.kind === "module") {
+        await deleteCurriculumModule(classroomId, target.id);
+        const deletedModule = data?.modules.find((module) => module.id === target.id);
+        if (deletedModule?.topics.some((topic) => topic.id === selectedTopicId)) setSelectedTopicId("");
+        setExpandedModules((current) => {
+          const next = { ...current };
+          delete next[target.id];
+          return next;
+        });
+        setData((current) => current ? { ...current, modules: current.modules.filter((module) => module.id !== target.id) } : current);
+      } else {
+        await deleteCurriculumTopic(classroomId, target.id);
+        if (selectedTopicId === target.id) setSelectedTopicId("");
+        setData((current) => current ? {
+          ...current,
+          modules: current.modules.map((module) => ({
+            ...module,
+            topics: module.topics.filter((topic) => topic.id !== target.id),
+          })),
+        } : current);
       }
-      setNotice("Module deleted from the curriculum.");
-      await refresh({ silent: true });
+      setCurriculumDeleteTarget(null);
+      showCurriculumDeleteFeedback("success", `${target.kind === "module" ? "Module" : "Topic"} deleted.`);
     } catch (reason) {
-      setError((reason as Error).message || "Unable to delete this module.");
+      setCurriculumDeleteTarget(null);
+      showCurriculumDeleteFeedback("error", (reason as Error).message || `Unable to delete this ${target.kind}.`);
+    } finally {
+      curriculumDeleteBusyRef.current = false;
+      curriculumDeleteStartedRef.current = false;
+      setCurriculumDeletePending(false);
+      setCurriculumDeleteStarted(false);
     }
   };
 
-  const removeCurriculumTopic = async (topicId: string) => {
-    if (!window.confirm("Delete this topic from the classroom curriculum?")) return;
+  const confirmCurriculumDelete = () => {
+    const target = curriculumDeleteTarget;
+    if (!target || curriculumDeleteBusyRef.current) return;
+    curriculumDeleteBusyRef.current = true;
+    curriculumDeleteStartedRef.current = false;
     setError("");
-    try {
-      await deleteCurriculumTopic(classroomId, topicId);
-      if (selectedTopicId === topicId) {
-        setSelectedTopicId("");
-      }
-      setNotice("Topic removed from the curriculum.");
-      await refresh({ silent: true });
-    } catch (reason) {
-      setError((reason as Error).message || "Unable to delete this topic.");
-    }
+    setCurriculumDeleteFeedback(null);
+    setCurriculumDeletePending(true);
+    setCurriculumDeleteStarted(false);
+    curriculumDeleteTimerRef.current = window.setTimeout(() => {
+      void finishCurriculumDelete(target);
+    }, 4500);
   };
 
-  if (loading) return <div className="state"><p>Loading classroom…</p></div>;
+  const undoCurriculumDelete = () => {
+    if (!curriculumDeleteBusyRef.current || curriculumDeleteStartedRef.current) return;
+    if (curriculumDeleteTimerRef.current !== null) window.clearTimeout(curriculumDeleteTimerRef.current);
+    curriculumDeleteTimerRef.current = null;
+    curriculumDeleteBusyRef.current = false;
+    setCurriculumDeletePending(false);
+    setCurriculumDeleteStarted(false);
+    setCurriculumDeleteTarget(null);
+    showCurriculumDeleteFeedback("info", "Deletion cancelled.");
+  };
+
+  if (loading) return <div className="classroom-page w-full min-h-screen px-3 pb-8 pt-4 md:px-5" aria-busy="true" aria-label="Loading classroom"><p className="sr-only" role="status">Loading classroom…</p><SkeletonClassroom /></div>;
   if (error && !data) return <div className="state"><p>{error}</p><Link to="/classrooms">Back to classrooms</Link></div>;
   if (!data) return null;
 
@@ -486,7 +581,7 @@ export default function ClassroomDetail({ user }: Props) {
             <textarea value={curriculumPrompt} onChange={(event) => setCurriculumPrompt(event.target.value)} placeholder="Paste syllabus, course goals, or curriculum notes" className="min-h-24 rounded-lg border border-primary/25 bg-black/40 px-3 py-2 text-sm" />
           </label>
           <button type="button" onClick={() => void generateDraft()} disabled={generating || curriculumPrompt.trim().length < 10} className="w-fit rounded-lg border border-primary/40 px-4 py-2 text-sm text-primary disabled:opacity-40">{generating ? "Generating draft…" : "Generate draft"}</button>
-          {draft && <div className="border-l-2 border-primary/40 pl-4 text-sm"><p className="font-medium">Draft preview: {draft.modules.length} modules</p><ul className="mt-2 grid gap-1 text-primary/75">{draft.modules.map((module) => <li key={module.title}>{module.title} · {module.topics.length} topics</li>)}</ul><button type="button" onClick={() => void addDraftToCurriculum()} className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-black">Add draft for review</button></div>}
+          {draft && <div className="border-l-2 border-primary/40 pl-4 text-sm"><p className="font-medium">Draft preview: {draft.modules.length} modules</p><ul className="mt-2 grid gap-1 text-primary/75">{draft.modules.map((module) => <li key={module.title}>{module.title} · {module.topics.length} topics</li>)}</ul><button type="button" onClick={() => void addDraftToCurriculum()} disabled={applyingDraft} aria-busy={applyingDraft} className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-black disabled:cursor-wait disabled:opacity-60">{applyingDraft ? "Adding draft…" : "Add draft for review"}</button></div>}
         </div>
         <form onSubmit={submitModule} className="mt-4 grid gap-3 border-b border-primary/20 pb-6 md:grid-cols-[1fr_2fr_auto] md:items-end">
           <label className="grid gap-1 text-xs text-primary/80">New module
@@ -681,7 +776,7 @@ export default function ClassroomDetail({ user }: Props) {
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-primary/85">{module.topics.length} topics</span>
                     {canEdit && (
-                      <button type="button" onClick={() => void removeCurriculumModule(module.id)} className="inline-flex items-center gap-1 rounded-md border border-red-400/40 px-2 py-1 text-xs text-red-200 hover:bg-red-950/40" aria-label={`Delete module ${module.title}`}>
+                      <button type="button" onClick={() => setCurriculumDeleteTarget({ kind: "module", id: module.id, name: module.title })} className="inline-flex items-center gap-1 rounded-md border border-red-400/40 px-2 py-1 text-xs text-red-200 hover:bg-red-950/40" aria-label={`Delete module ${module.title}`}>
                         <Trash2 size={14} /> Delete
                       </button>
                     )}
@@ -704,7 +799,7 @@ export default function ClassroomDetail({ user }: Props) {
                             <BookOpen size={15} /> Learn with Curiosity <ArrowRight size={14} />
                           </Link>
                           {canEdit && (
-                            <button type="button" onClick={() => void removeCurriculumTopic(topic.id)} className="inline-flex items-center gap-1 rounded-lg border border-red-400/40 px-2 py-2 text-xs text-red-200 hover:bg-red-950/40" aria-label={`Delete topic ${topic.title}`}>
+                            <button type="button" onClick={() => setCurriculumDeleteTarget({ kind: "topic", id: topic.id, name: topic.title })} className="inline-flex items-center gap-1 rounded-lg border border-red-400/40 px-2 py-2 text-xs text-red-200 hover:bg-red-950/40" aria-label={`Delete topic ${topic.title}`}>
                               <Trash2 size={14} /> Delete
                             </button>
                           )}
@@ -792,6 +887,66 @@ export default function ClassroomDetail({ user }: Props) {
               </button>
             </div>
           </section>
+        </div>
+      )}
+      {curriculumDeleteTarget && (
+        <div
+          className="classroom-delete-overlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !curriculumDeletePending) setCurriculumDeleteTarget(null);
+          }}
+        >
+          <section
+            className="classroom-delete-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-curriculum-item-title"
+            aria-describedby="delete-curriculum-item-description"
+            aria-busy={curriculumDeletePending}
+          >
+            <div className="classroom-delete-icon" aria-hidden="true"><Trash2 size={20} /></div>
+            <p className="classroom-delete-eyebrow">{curriculumDeleteTarget.kind === "module" ? "Delete module" : "Delete topic"}</p>
+            <h2 id="delete-curriculum-item-title">{curriculumDeleteTarget.name}</h2>
+            <p id="delete-curriculum-item-description">
+              {curriculumDeleteTarget.kind === "module"
+                ? "This removes the module and its topics from the curriculum. You can undo before deletion completes."
+                : "This removes the topic from the curriculum. You can undo before deletion completes."}
+            </p>
+            {curriculumDeletePending && <p className="curriculum-delete-pending" role="status">{curriculumDeleteStarted ? "Finishing deletion…" : "Deleting in a few seconds. Undo from the notification if you change your mind."}</p>}
+            <div className="classroom-delete-actions">
+              <button
+                ref={cancelCurriculumDeleteRef}
+                type="button"
+                disabled={curriculumDeleteStarted}
+                onClick={() => curriculumDeletePending ? undoCurriculumDelete() : setCurriculumDeleteTarget(null)}
+              >
+                {curriculumDeletePending ? "Undo" : "Cancel"}
+              </button>
+              <button type="button" className="classroom-delete-confirm" disabled={curriculumDeletePending} onClick={confirmCurriculumDelete}>
+                {curriculumDeletePending ? <LoaderCircle size={16} className="curriculum-delete-spinner" aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
+                {curriculumDeletePending ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {curriculumDeletePending && !curriculumDeleteStarted && curriculumDeleteTarget && (
+        <div className="classroom-undo-toast curriculum-undo-toast" role="status" aria-live="polite">
+          <span className="classroom-undo-toast-icon curriculum-undo-icon"><Trash2 size={15} aria-hidden="true" /></span>
+          <div className="classroom-undo-toast-copy">
+            <strong>{curriculumDeleteTarget.name} will be deleted</strong>
+            <span>Undo within 4.5 seconds</span>
+          </div>
+          <button type="button" className="classroom-undo-button" onClick={undoCurriculumDelete}>Undo</button>
+        </div>
+      )}
+      {curriculumDeleteFeedback && (
+        <div className={`classroom-undo-toast curriculum-delete-feedback curriculum-delete-feedback-${curriculumDeleteFeedback.kind}`} role={curriculumDeleteFeedback.kind === "error" ? "alert" : "status"} aria-live="polite">
+          <span className="classroom-undo-toast-icon">
+            {curriculumDeleteFeedback.kind === "success" ? <Check size={15} aria-hidden="true" /> : curriculumDeleteFeedback.kind === "error" ? <AlertTriangle size={15} aria-hidden="true" /> : <X size={15} aria-hidden="true" />}
+          </span>
+          <div className="classroom-undo-toast-copy"><strong>{curriculumDeleteFeedback.message}</strong></div>
+          <button type="button" className="classroom-undo-dismiss" onClick={() => setCurriculumDeleteFeedback(null)} aria-label="Dismiss notification"><X size={16} /></button>
         </div>
       )}
     </section>

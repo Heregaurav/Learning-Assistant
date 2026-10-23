@@ -1,5 +1,6 @@
 import { Component, ReactNode } from "react";
 import { AlertCircle, RefreshCw, X } from "lucide-react";
+import { SkeletonLesson } from "./Skeletons";
 export const LoadingState = ({ stage = "understanding" }: { stage?: string }) => {
   const copy: Record<string, string> = {
     uploading: "Uploading document…",
@@ -12,12 +13,12 @@ export const LoadingState = ({ stage = "understanding" }: { stage?: string }) =>
     ready: "Your lesson is ready.",
   };
   return (
-    <div className="state" role="status" aria-live="polite">
-      <h2>Preparing your lesson…</h2>
-      <p>{copy[stage] ?? copy.understanding} This can take up to a minute.</p>
-      <div className="bar">
-        <i />
+    <div className="ai-loading-state" role="status" aria-live="polite" aria-busy="true">
+      <div className="ai-loading-copy">
+        <h2>{stage === "uploading" || stage === "reading" ? "Organizing your learning materials…" : "Preparing your lesson…"}</h2>
+        <p>{copy[stage] ?? copy.understanding} This can take up to a minute.</p>
       </div>
+      <SkeletonLesson />
     </div>
   );
 };

@@ -1,6 +1,6 @@
 # Curiosity: AI Study Assistant
 
-Curiosity is a full-stack study assistant for turning a topic, pasted notes, or a lecture summary into an interactive learning session. A generated session combines a structured explanation, optional visual study blocks, flashcards, and a quiz. Completed work is saved to MongoDB so learners can return to sessions, review progress, and retest a topic.
+Curiosity is a full-stack study assistant for turning a topic, pasted notes, or a lecture summary into an interactive learning session. A generated session combines a structured explanation, optional visual study blocks, flashcards, and a quiz. Completed work is saved to PostgreSQL so learners can return to sessions, review progress, and retest a topic.
 
 The project is designed around a focused learning loop rather than an open-ended chatbot:
 
@@ -72,7 +72,7 @@ The backend sends the existing lesson and refinement instruction to the AI. The 
 
 ### Persistence and reload behavior
 
-- Session routes such as `/session/{id}` load their data from MongoDB on every visit.
+- Session routes such as `/session/{id}` load their data from PostgreSQL on every visit.
 - History and Profile reload their data from the backend.
 - The active lesson on the root Learn page is cached locally so a browser reload does not immediately discard the generated lesson.
 - Refined active lessons update that local cache as well.
@@ -80,11 +80,11 @@ The backend sends the existing lesson and refinement instruction to the AI. The 
 
 ### Guest Mode
 
-Guest Mode is intended for trying the learning workflow without creating or connecting a Google account. The browser creates a random `guest_<uuid>` identifier and sends it in the `X-Guest-ID` header. The backend uses that identifier to isolate the guest's temporary sessions, topics, quiz results, refinement requests, and retests.
+Guest Mode is intended for trying the learning workflow without creating or connecting a Google account. Selecting Guest Mode asks the backend to create a guest user and server-side session. The backend sets the application session ID only in an HttpOnly cookie; the browser does not store or send a guest identity header. Guest sessions persist across reloads until logout or expiration, and are always assigned the `STUDENT` role.
 
 Guest users can use the core learning flow, including lesson generation, flashcards, quizzes, refinement, retesting, History, and Profile. If a guest profile or history request is unavailable, the frontend shows a useful empty guest workspace instead of a blocking authentication error.
 
-Guest data is browser-scoped rather than account-scoped. Clearing browser storage, changing browsers, or using another device loses access to that guest workspace. Choose Google login for a named profile, durable account-based history, and a better long-term experience.
+Guest data is browser-scoped rather than account-scoped. Clearing cookies, changing browsers, or using another device loses access to that guest workspace. Existing records created under the former localStorage `X-Guest-ID` design are retained but are not automatically attached to a new session: trusting that client-supplied ID would let anyone claim another guest's data. No guest-to-account merge is performed during Google sign-in. Choose Google login for a named profile, durable account-based history, and a better long-term experience.
 
 ### Interface and accessibility
 
@@ -113,14 +113,14 @@ Guest data is browser-scoped rather than account-scoped. Clearing browser storag
 - Python.
 - FastAPI and Uvicorn.
 - Pydantic 2 for request and lesson validation.
-- PyMongo for MongoDB access.
+- SQLAlchemy 2.x, Alembic, and psycopg 3 for PostgreSQL persistence and migrations.
 - `python-dotenv` for local environment configuration.
 - Google Auth libraries for validating Google identity tokens.
 - OpenAI-compatible client calls for Groq, Google Gemini, and OpenRouter.
 
 ### Data services
 
-- MongoDB Atlas or a local MongoDB deployment.
+- Neon PostgreSQL or a local PostgreSQL server.
 - Google OAuth 2.0 for authentication.
 - One or more supported AI providers:
   - Groq.
@@ -172,7 +172,7 @@ Install the following before setup:
 - Python 3.10 or newer. The current development environment uses Python 3.12.
 - Node.js 18 or newer.
 - npm.
-- A MongoDB Atlas cluster or local MongoDB server.
+- A Neon PostgreSQL project or local PostgreSQL server.
 - A Google Cloud OAuth client ID.
 - At least one supported AI provider key.
 
@@ -213,8 +213,13 @@ cp backend/.env.example backend/.env
 Then edit `backend/.env`:
 
 ```env
-MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>/<database>?retryWrites=true&w=majority
-DATABASE_NAME=learningAssistant
+DATABASE_URL=postgresql+psycopg://<user>:<password>@<endpoint>-pooler.<region>.aws.neon.tech/<database>?sslmode=require&channel_binding=require
+MIGRATION_DATABASE_URL=postgresql+psycopg://<user>:<password>@<endpoint>.<region>.aws.neon.tech/<database>?sslmode=require&channel_binding=require
+DB_POOL_SIZE=5
+DB_MAX_OVERFLOW=5
+DB_POOL_RECYCLE_SECONDS=300
+MONGODB_URI=
+MONGODB_DATABASE=learningAssistant
 
 GOOGLE_CLIENT_ID=<google-oauth-client-id>
 
@@ -272,7 +277,7 @@ Google login is optional for trying the app as a guest, but it is recommended fo
    - `backend/.env` as `GOOGLE_CLIENT_ID`.
    - `frontend/.env` as `VITE_GOOGLE_CLIENT_ID`.
 
-The backend validates the Google identity token, creates or updates the user record, and uses the Google subject ID as the MongoDB user identifier. The frontend stores the returned credential in browser local storage for subsequent API calls.
+The backend validates the Google identity token, creates or updates the user record, and uses the Google subject ID as the PostgreSQL string user identifier. The frontend stores the returned credential in browser local storage for subsequent API calls.
 
 ### First platform administrator and classroom creation
 
@@ -280,23 +285,39 @@ New Google accounts are assigned the `STUDENT` role. To provision the first plat
 
 The first administrator can create classrooms immediately or open **Admin** in the app and assign `FACULTY` to other registered users. Faculty then open **Classrooms** and use **Create classroom**. Students join an existing class with its join code. Do not use `BOOTSTRAP_ADMIN_EMAIL` as a general role-management mechanism; later role changes belong in the admin screen.
 
-## MongoDB configuration
+## Neon and PostgreSQL
 
-For MongoDB Atlas:
+Create a Neon project and database, then open **Connect** in the Neon Console and copy two URLs for the same branch, database, and role. Use the pooled URL (hostname includes `-pooler`) for `DATABASE_URL`; Neon’s PgBouncer uses transaction pooling. Use the direct, non-pooled URL for `MIGRATION_DATABASE_URL`, since Alembic schema changes use a direct connection. Keep `sslmode=require` and the Neon-provided `channel_binding=require` parameter. Never put database credentials in frontend configuration.
 
-1. Create a cluster.
-2. Create a database user.
-3. Add the development machine's IP address to the network access list.
-4. Copy the connection string into `MONGODB_URI`.
-5. URL-encode special characters in the database username or password.
+The backend uses SQLAlchemy 2.x and synchronous psycopg 3 because the existing routes are synchronous. Request middleware commits successful requests, rolls back exceptions and error responses, and closes its session. SSE owns a transaction for the stream lifetime. The file-upload handler runs synchronously in FastAPI's worker pool so database calls do not block the event loop. The application does not create tables at startup; Alembic owns schema changes.
 
-The application creates and uses these collections:
+From `backend/`, apply the schema:
 
-- `users`: Google identity and aggregate statistics.
-- `sessions`: generated lessons, quiz answers, scores, retests, and timestamps.
-- `topics`: topic-level progress and references to session IDs.
+```bash
+../.venv/bin/python -m alembic upgrade head
+```
 
-No migration command is required for the current document model. New fields are added defensively when new sessions or requests are handled, and older lesson documents remain readable through validation and normalization.
+For local PostgreSQL, set both database URLs to a local DSN. To check for schema drift:
+
+```bash
+../.venv/bin/python -m alembic check
+```
+
+## MongoDB data migration
+
+MongoDB is no longer used by the API. The standalone importer opens MongoDB read-only, preserves source `_id` values as strings (including BSON ObjectIds), splits Mongo's shared `sessions` collection into PostgreSQL auth and learning-session tables, and uses idempotent upserts in bounded batches. It writes a JSON report for invalid, duplicate, orphaned, and unsupported fields, plus count and relationship checks. Topic prerequisite values remain intact; resolvable same-classroom topic IDs become foreign-key relationships. Concept prerequisite values are stored by their original names in a classroom/topic-scoped association table, without inventing concept IDs.
+
+Set `MONGODB_URI`, `MONGODB_DATABASE`, `DATABASE_URL`, and `MIGRATION_DATABASE_URL` in `backend/.env`. Preview source counts, then import:
+
+```bash
+cd backend
+../.venv/bin/python migrate_mongo_to_postgres.py --dry-run --report migration-dry-run.json
+../.venv/bin/python migrate_mongo_to_postgres.py --batch-size 500 --report migration-report.json
+```
+
+Back up MongoDB and create a Neon branch backup/restore point before importing. The importer is not CDC and cannot produce a consistent snapshot while the source is changing: stop old-app writers or place the old app in read-only/maintenance mode before the final import. If writes cannot stop, a separately validated change-stream or dual-write phase is required; this repo does not implement it. Review and reconcile every report issue and count mismatch, then rerun the idempotent importer. Smoke-test authentication, guest learning, grading, and classroom permissions before enabling PostgreSQL writes. Keep MongoDB untouched through the rollback window. Rollback means stopping new PostgreSQL writes and restoring the prior app plus Mongo backup; PostgreSQL-only writes must be reconciled before reverting to avoid data loss.
+
+No production credentials or source data were available here, so the importer has not been run against customer records and production traffic was not switched.
 
 ## Running the application
 
@@ -440,7 +461,7 @@ FastAPI backend
         | validates request and AI output
         +--> OpenAI-compatible provider
         |
-        +--> MongoDB users, topics, sessions
+        +--> PostgreSQL users, topics, sessions
 ```
 
 ### AI response safety
@@ -480,16 +501,16 @@ The project does not claim that generated lessons are original, authoritative, o
 - Optional blocks depend on model output. A provider may return no blocks or malformed blocks that are safely discarded.
 - Refinement requires the model to return a complete compatible lesson after the existing lesson is supplied as context. Very large lessons may exceed provider context or output limits.
 - Retests are limited to three per topic and use prior question text as an exclusion hint; semantic duplication cannot be guaranteed.
-- MongoDB availability is required for saving profile data, history, retests, refinement, and both guest and authenticated sessions.
+- PostgreSQL availability is required for saving profile data, history, retests, refinement, and both guest and authenticated sessions.
 - Guest workspaces are tied to browser local storage and are not transferable to a Google account automatically.
 - Guest users do not have a verified identity or cross-device recovery path; login is the recommended mode for important study history.
 - The active Learn-page cache uses browser local storage. Clearing site data removes it, and it is intentionally cleared on sign-out.
 - Google OAuth must be configured for every development origin and deployment origin when Google login is enabled. Guest Mode does not require Google OAuth.
-- The current frontend has no automated browser test suite or backend integration test suite.
+- The current frontend has no automated browser test suite; the backend includes regression and PostgreSQL integration tests.
 - The app currently has a cinematic dark visual direction rather than a user-selectable light theme.
 - Provider model names are constrained by the provider configuration in `backend/llm.py`.
 - Google API calls use bearer credentials, while guest calls use the browser-scoped `X-Guest-ID` header. The application does not implement Google refresh-token management.
-- The project does not include production deployment configuration, database migrations, rate limiting, background job processing, or centralized observability.
+- The project does not include production deployment configuration, rate limiting, background job processing, or centralized observability.
 
 ## Validation and development commands
 
@@ -514,7 +535,15 @@ Diff whitespace check:
 git diff --check
 ```
 
-There is currently no dedicated automated test command in `package.json` or `requirements.txt`. The build and syntax commands above are the repository's available baseline checks.
+Backend behavior and PostgreSQL persistence tests:
+
+```bash
+cd backend
+../.venv/bin/python -m pytest tests -q
+TEST_DATABASE_URL='postgresql+psycopg://<user>:<password>@localhost:5432/curiosity_test' ../.venv/bin/python -m pytest tests -q
+```
+
+The first command runs the API and domain tests. The second also runs PostgreSQL-specific tests against a separate disposable database that the test fixture recreates. Never point `TEST_DATABASE_URL` at a database containing data to keep.
 
 ## Time spent
 
@@ -534,8 +563,3 @@ Approximate implementation and debugging time: **8-10 hours**.
 
 <<<<<<< HEAD
 The estimate is approximate because development included iterative browser checks, model-response handling, local environment corrections, and responsive adjustments across multiple viewport sizes.
-
-
-=======
-The estimate is approximate because development included iterative browser checks, model-response handling, local environment corrections, and responsive adjustments across multiple viewport size.
->>>>>>> 26978b3 (addeded the classroom)

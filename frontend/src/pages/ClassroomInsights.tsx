@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3 } from "lucide-react";
 import { CLASSROOM_PROGRESS_UPDATED, getClassroomAnalytics, getClassroomGraph, getClassroomProgress } from "../lib/api";
 import type { KnowledgeGraphNode, Role } from "../types";
+import { SkeletonCard, SkeletonGraph, SkeletonList } from "../components/Skeletons";
 
 const ClassroomKnowledgeGraph = lazy(() => import("../components/ClassroomKnowledgeGraph"));
 
@@ -116,7 +117,10 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
           Learning graph
         </button>
       </div>
-      {loading ? <p className="py-6 text-sm text-primary/70">{progressView === "graph" ? "Loading learning graph…" : "Calculating progress from recorded evidence…"}</p> : canEdit ? (progressView === "modules" ? (
+      {loading ? <div className="mt-5 grid gap-4" aria-busy="true" aria-label={progressView === "graph" ? "Loading learning graph" : "Loading classroom progress"}>
+        <p className="sr-only" role="status">{progressView === "graph" ? "Loading learning graph…" : "Calculating progress from recorded evidence…"}</p>
+        {progressView === "graph" ? <SkeletonGraph /> : <><div className="grid gap-3 sm:grid-cols-3">{Array.from({ length: 3 }, (_, index) => <SkeletonCard key={index} className="min-h-24"><span className="skeleton" style={{ width: "55%", height: 11 }} /><span className="skeleton" style={{ width: "32%", height: 25 }} /></SkeletonCard>)}</div><div className="grid gap-5 lg:grid-cols-2"><SkeletonCard><SkeletonList count={4} /></SkeletonCard><SkeletonCard><SkeletonList count={4} /></SkeletonCard></div></>}
+      </div> : canEdit ? (progressView === "modules" ? (
         analytics && <>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <Metric label="Enrolled students" value={analytics.enrolledStudents} />
@@ -257,10 +261,10 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
           <div><p className="text-[10px] uppercase tracking-[0.16em] text-primary/65">Curriculum relationships and evidence</p><h3 id="learning-graph-heading" className="mt-1 text-xl font-semibold">Learning graph</h3><p className="mt-1 text-sm text-[#c9c4b5]">Explore how studied topics, concepts, prerequisites, and evidence connect.</p></div>
           {canEdit && analytics && <label className="flex items-center gap-2 text-xs text-primary/75">Student<select value={graphStudentId} onChange={(event) => setGraphStudentId(event.target.value)} className="max-w-[220px] rounded-md border border-primary/25 bg-black/40 px-2 py-2 text-sm text-[#E1E0CC]">{analytics.students.map((student) => <option key={student.studentId} value={student.studentId}>{student.name}</option>)}</select></label>}
         </div>
-        {graphLoading && (!graph || graph.nodes.length === 0) ? <p className="py-5 text-sm text-primary/70">Loading the knowledge graph…</p> : !graph || graph.nodes.length === 0 ? <p className="py-5 text-sm text-primary/70">Completed or mastered topics will appear here as students progress through the curriculum.</p> : (
+        {graphLoading && (!graph || graph.nodes.length === 0) ? <div aria-busy="true" aria-label="Loading knowledge graph"><p className="sr-only" role="status">Loading the knowledge graph…</p><SkeletonGraph /></div> : !graph || graph.nodes.length === 0 ? <p className="py-5 text-sm text-primary/70">Completed or mastered topics will appear here as students progress through the curriculum.</p> : (
           <>
           {graphLoading && <p aria-live="polite" className="mb-2 text-xs text-primary/55">Updating graph…</p>}
-          <Suspense fallback={<p className="py-4 text-sm text-primary/70">Loading 3D graph…</p>}>
+          <Suspense fallback={<div aria-busy="true" aria-label="Loading 3D graph"><p className="sr-only" role="status">Loading the 3D graph…</p><SkeletonGraph /></div>}>
             <ClassroomKnowledgeGraph graph={graph} selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} />
           </Suspense>
           <div className="mt-3 grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">

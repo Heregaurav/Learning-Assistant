@@ -82,7 +82,7 @@ Use only the exact official concept identifiers supplied in the request, and lea
 Keep each explanation short. Return valid JSON only."""
 CURRICULUM_SYSTEM = """You are a curriculum designer. Return only JSON with this shape:
 {"modules":[{"title":"...","description":"...","topics":[{"title":"...","description":"...","learningObjectives":["..."],"prerequisites":["topic title"],"concepts":[{"name":"...","description":"...","prerequisites":["concept name"]}]}]}]}
-Create an ordered, complete curriculum from the teacher's syllabus. Do not invent unrelated material. Use prerequisite topic titles only when supported by the syllabus."""
+Create an ordered, complete curriculum from the teacher's syllabus. Give each module a concise description of 1-2 sentences that explains its scope and how it fits the course progression. Include a modest, syllabus-proportional set of specific topics under each module, with brief topic descriptions, focused learning objectives, and relevant concepts. Keep the curriculum useful but not over-detailed; do not add filler or split material into excessive modules or topics. Do not invent unrelated material. Use prerequisite topic titles only when supported by the syllabus."""
 
 PROVIDERS = {
     "groq": {

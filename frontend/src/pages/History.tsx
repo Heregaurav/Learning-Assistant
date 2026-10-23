@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getSessions, retestTopic } from "../lib/api";
-import { EmptyState, ErrorState, LoadingState } from "../components/States";
+import { EmptyState, ErrorState } from "../components/States";
+import { SkeletonList } from "../components/Skeletons";
 
 export default function History() {
   const [rows, setRows] = useState<any[] | null>(null),
@@ -9,19 +10,12 @@ export default function History() {
     [q, setQ] = useState(""),
     [retesting, setRetesting] = useState<string | null>(null);
   const navigate = useNavigate();
-  const isGuest = localStorage.getItem("curiosity.guest-id") !== null;
   const load = () => {
     setErr("");
     setRows(null);
     getSessions()
       .then(setRows)
-      .catch((e) => {
-        if (isGuest) {
-          setRows([]);
-        } else {
-          setErr(e.message);
-        }
-      });
+      .catch((e) => setErr(e.message));
   };
   useEffect(load, []);
   const startRetest = async (topicId: string) => {
@@ -40,7 +34,7 @@ export default function History() {
     }
   };
   if (err) return <ErrorState message={err} onRetry={load} />;
-  if (!rows) return <LoadingState />;
+  if (!rows) return <section aria-busy="true" aria-label="Loading study history"><p className="sr-only" role="status">Loading study history…</p><header className="hero intro"><div className="skeleton-text"><span className="skeleton" style={{ width: "32%", height: 34 }} /></div></header><SkeletonList count={6} /></section>;
   const shown = rows.filter((r) =>
     r.topic.toLowerCase().includes(q.toLowerCase()),
   );

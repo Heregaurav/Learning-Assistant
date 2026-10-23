@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getProfile, retestTopic } from "../lib/api";
-import { ErrorState, LoadingState } from "../components/States";
+import { ErrorState } from "../components/States";
+import { SkeletonProfile } from "../components/Skeletons";
 
 type ProfileData = {
   name: string;
@@ -26,30 +27,8 @@ export default function Profile() {
   const [error, setError] = useState("");
   const [retesting, setRetesting] = useState<string | null>(null);
   const navigate = useNavigate();
-  const isGuest = localStorage.getItem("curiosity.guest-id") !== null;
-  const guestProfile: ProfileData = {
-    name: "Guest learner",
-    email: "",
-    isGuest: true,
-    stats: {
-      topicsStudied: 0,
-      sessionsCompleted: 0,
-      averageScore: 0,
-      cardsReviewed: 0,
-      quizzesCompleted: 0,
-    },
-    strong: [],
-    needsReview: [],
-    classroomPaths: [],
-  };
   const load = () => {
     setError("");
-    if (isGuest) {
-      getProfile()
-        .then(setProfile)
-        .catch(() => setProfile(guestProfile));
-      return;
-    }
     getProfile()
       .then(setProfile)
       .catch((e) => setError(e.message));
@@ -70,8 +49,8 @@ export default function Profile() {
       setRetesting(null);
     }
   };
-  if (error && !isGuest) return <ErrorState message={error} onRetry={load} />;
-  if (!profile) return <LoadingState />;
+  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (!profile) return <section aria-busy="true" aria-label="Loading profile"><p className="sr-only" role="status">Loading your profile…</p><SkeletonProfile /></section>;
   return (
     <>
       <header className="hero intro profile-hero">

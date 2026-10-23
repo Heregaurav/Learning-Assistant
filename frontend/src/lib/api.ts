@@ -18,12 +18,13 @@ const BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").repl
 const apiUrl = (path: string) => `${BASE}/${path.replace(/^\/+/, "")}`;
 export const CLASSROOM_PROGRESS_UPDATED = "curiosity:classroom-progress-updated";
 const notifyProgressUpdated = () => window.dispatchEvent(new Event(CLASSROOM_PROGRESS_UPDATED));
-const CSRF_TOKEN_KEY = "curiosity.csrf-token";
-let csrfToken = localStorage.getItem(CSRF_TOKEN_KEY) ?? "";
+let csrfToken = "";
 
 export const setCsrfToken = (token: string) => {
   csrfToken = token;
-  localStorage.setItem(CSRF_TOKEN_KEY, token);
+};
+export const clearCsrfToken = () => {
+  csrfToken = "";
 };
 
 export class ApiError extends Error {
@@ -48,8 +49,6 @@ export const MSG: Record<string, string> = {
   llm_failed: "We couldn't generate your lesson.",
   network: "Unable to connect to the server.",
   database_unavailable: "The database is unavailable right now.",
-  database_auth_failed:
-    "MongoDB rejected the username or password. Check backend/.env.",
   missing_api_key: "Add the selected provider API key to backend/.env.",
   retest_limit: "You have used all 3 retests for this topic.",
 };
@@ -63,7 +62,6 @@ async function req<T>(
     t = setTimeout(() => ctl.abort("timeout"), timeoutMs);
   init.signal?.addEventListener("abort", () => ctl.abort("cancelled"));
   try {
-    const guestId = localStorage.getItem("curiosity.guest-id");
     const r = await fetch(apiUrl(path), {
       ...init,
       credentials: "include",
@@ -71,12 +69,15 @@ async function req<T>(
       headers: {
         "Content-Type": "application/json",
         ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-        ...(guestId ? { "X-Guest-ID": guestId } : {}),
       },
     });
     if (!r.ok) {
       const b = await r.json().catch(() => ({}));
       const code = b?.detail?.code ?? `http_${r.status}`;
+      if (r.status === 401 && code === "auth_required") {
+        clearCsrfToken();
+        window.dispatchEvent(new Event("curiosity:session-expired"));
+      }
       throw new ApiError(
         code,
         MSG[code] ?? b?.detail?.message ?? "Request failed.",
@@ -107,6 +108,14 @@ export const googleAuth = (credential: string) =>
     setCsrfToken(result.csrfToken);
     return result;
   });
+export const createGuestSession = () =>
+  req<{
+    user: { id: string; name: string; email: string; picture: string; role: "STUDENT"; isGuest: true };
+    csrfToken: string;
+  }>("/api/auth/guest", { method: "POST" }).then((result) => {
+    setCsrfToken(result.csrfToken);
+    return result;
+  });
 export const getAuthSession = () =>
   req<{
     authenticated: boolean;
@@ -117,9 +126,11 @@ export const getAuthSession = () =>
       email: string;
       picture: string;
       role: "ADMIN" | "FACULTY" | "STUDENT";
+      isGuest?: boolean;
     } | null;
   }>("/api/auth/session").then((result) => {
-    if (result.csrfToken) setCsrfToken(result.csrfToken);
+    if (result.authenticated && result.csrfToken) setCsrfToken(result.csrfToken);
+    else clearCsrfToken();
     return result;
   });
 export const getProfile = () =>
@@ -378,6 +389,21 @@ export const generateClassroomCurriculum = (
     body: JSON.stringify(payload),
   });
 
+export const applyClassroomCurriculumDraft = (
+  classroomId: string,
+  payload: {
+    modules: {
+      title: string;
+      description?: string;
+      topics: Omit<CurriculumTopic, "id">[];
+    }[];
+  },
+) =>
+  req<ClassroomCurriculum>(`/api/classrooms/${encodeURIComponent(classroomId)}/curriculum/draft`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
 export const learnDocument = (
   file: File,
   payload: DocumentLearningRequest,
@@ -395,14 +421,15 @@ export const learnDocument = (
     body: form,
     headers: {
       ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-      ...(localStorage.getItem("curiosity.guest-id")
-        ? { "X-Guest-ID": localStorage.getItem("curiosity.guest-id") ?? "" }
-        : {}),
     },
   }).then(async (r) => {
     if (!r.ok) {
       const b = await r.json().catch(() => ({}));
       const code = b?.detail?.code ?? `http_${r.status}`;
+      if (r.status === 401 && code === "auth_required") {
+        clearCsrfToken();
+        window.dispatchEvent(new Event("curiosity:session-expired"));
+      }
       throw new ApiError(code, MSG[code] ?? b?.detail?.message ?? "Request failed.");
     }
     return (await r.json()) as DocumentLearningResponse;
@@ -440,13 +467,16 @@ export const learnStream = async (
     headers: {
       "Content-Type": "application/json",
       ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-      ...(localStorage.getItem("curiosity.guest-id")
-        ? { "X-Guest-ID": localStorage.getItem("curiosity.guest-id") ?? "" }
-        : {}),
     },
     body: JSON.stringify({ content, difficulty, provider, model, ...classroomContext }),
   });
-  if (!response.ok || !response.body) throw new ApiError("network", MSG.network);
+  if (!response.ok || !response.body) {
+    if (response.status === 401) {
+      clearCsrfToken();
+      window.dispatchEvent(new Event("curiosity:session-expired"));
+    }
+    throw new ApiError("network", MSG.network);
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -490,6 +520,5 @@ export const refineSession = (id: string, prompt: string) =>
 
 export const logout = () =>
   req<{ status: string }>("/api/auth/logout", { method: "POST" }).finally(() => {
-    csrfToken = "";
-    localStorage.removeItem(CSRF_TOKEN_KEY);
+    clearCsrfToken();
   });

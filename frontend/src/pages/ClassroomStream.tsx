@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { createClassroomPost, getClassroomStream, replyToClassroomPost } from "../lib/api";
 import type { ClassroomPost } from "../lib/api";
+import { SkeletonList } from "../components/Skeletons";
 
 type Props = { classroomId: string; canAnnounce: boolean };
 
@@ -72,7 +73,7 @@ export default function ClassroomStream({ classroomId, canAnnounce }: Props) {
         <textarea required value={body} onChange={(event) => setBody(event.target.value)} placeholder="Share an update or ask a question" className="min-h-20 rounded-lg border border-primary/25 bg-black/40 px-3 py-2 text-sm" />
         <button className="justify-self-start rounded-lg bg-primary px-4 py-2 text-sm font-medium text-black">Post to stream</button>
       </form>
-      {loading ? <p className="py-5 text-sm text-primary/70">Loading posts…</p> : posts.length === 0 ? (
+      {loading ? <div aria-busy="true" aria-label="Loading classroom posts"><p className="sr-only" role="status">Loading classroom posts…</p><SkeletonList count={3} /></div> : posts.length === 0 ? (
         <p className="py-5 text-sm text-primary/70">No posts yet. Start the classroom conversation.</p>
       ) : (
         <div className="divide-y divide-primary/15">

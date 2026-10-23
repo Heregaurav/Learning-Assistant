@@ -10,7 +10,8 @@ import ClassroomsPage from "./pages/Classrooms";
 import ClassroomDetail from "./pages/ClassroomDetail";
 import AdminUsers from "./pages/AdminUsers";
 import { Boundary } from "./components/States";
-import { getAuthSession, googleAuth, logout } from "./lib/api";
+import { SkeletonProfile } from "./components/Skeletons";
+import { clearCsrfToken, createGuestSession, getAuthSession, googleAuth, logout } from "./lib/api";
 import type { Role } from "./types";
 
 type User = {
@@ -22,7 +23,6 @@ type User = {
   isGuest?: boolean;
 };
 
-const GUEST_ID_KEY = "curiosity.guest-id";
 const THEME_KEY = "curiosity.theme";
 type ThemeMode = "cinematic" | "plain" | "dark";
 const themeCycle: ThemeMode[] = ["plain", "dark", "cinematic"];
@@ -36,14 +36,6 @@ const themeLabel: Record<ThemeMode, string> = {
   plain: "Plain",
   dark: "Dark",
 };
-const getGuestId = () => {
-  const existing = localStorage.getItem(GUEST_ID_KEY);
-  if (existing) return existing;
-  const id = `guest_${crypto.randomUUID()}`;
-  localStorage.setItem(GUEST_ID_KEY, id);
-  return id;
-};
-
 const prismaBackgroundVideo =
   "https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260405_170732_8a9ccda6-5cff-4628-b164-059c500a2b41.mp4";
 
@@ -119,6 +111,7 @@ function GoogleSignIn({
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
+  const [authError, setAuthError] = useState("");
   const [showSignIn, setShowSignIn] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
@@ -132,50 +125,52 @@ export default function App() {
     setPictureFailed(false);
   }, [user?.picture]);
   useEffect(() => {
+    localStorage.removeItem("curiosity.csrf-token");
+    localStorage.removeItem("curiosity.guest-id");
     getAuthSession()
       .then((session) => {
         if (session.authenticated && session.user) {
-          setUser({ ...session.user, isGuest: false });
+          setUser({ ...session.user, isGuest: Boolean(session.user.isGuest) });
           return;
         }
-        const guestId = localStorage.getItem(GUEST_ID_KEY);
-        if (guestId) {
-          setUser({
-            id: guestId,
-            name: "Guest",
-            email: "",
-            picture: "",
-            isGuest: true,
-          });
-        } else {
-          setUser(null);
-        }
+        setUser(null);
       })
       .catch(() => {
-        const guestId = localStorage.getItem(GUEST_ID_KEY);
-        setUser(guestId ? { id: guestId, name: "Guest", email: "", picture: "", isGuest: true } : null);
+        setUser(null);
       })
       .finally(() => setChecking(false));
   }, []);
+  useEffect(() => {
+    const expireSession = () => {
+      clearCsrfToken();
+      setUser(null);
+    };
+    window.addEventListener("curiosity:session-expired", expireSession);
+    return () => window.removeEventListener("curiosity:session-expired", expireSession);
+  }, []);
   const signIn = useCallback((next: User) => {
-    localStorage.removeItem(GUEST_ID_KEY);
     setUser(next);
   }, []);
-  const useGuest = () => {
-    setUser({
-      id: getGuestId(),
-      name: "Guest",
-      email: "",
-      picture: "",
-      role: "STUDENT",
-      isGuest: true,
-    });
+  const useGuest = async () => {
+    setChecking(true);
+    setAuthError("");
+    try {
+      const session = await createGuestSession();
+      setUser({ ...session.user, isGuest: true });
+    } catch (reason) {
+      setAuthError((reason as Error).message || "Unable to start a guest session.");
+    } finally {
+      setChecking(false);
+    }
   };
-  const signOut = () => {
-    void logout().catch(() => undefined);
-    localStorage.removeItem(GUEST_ID_KEY);
-    localStorage.removeItem("curiosity.active-lesson");
-    setUser(null);
+  const signOut = async () => {
+    try {
+      await logout();
+    } catch {
+    } finally {
+      localStorage.removeItem("curiosity.active-lesson");
+      setUser(null);
+    }
   };
   const toggleVideo = () => {
     const video = backgroundVideoRef.current;
@@ -206,15 +201,14 @@ export default function App() {
   }, [theme, videoPaused]);
   if (checking)
     return (
-      <div className="state">
-        <p>Checking your sign-in…</p>
-      </div>
+      <main aria-busy="true" aria-label="Checking sign-in"><p className="sr-only" role="status">Checking your sign-in…</p><SkeletonProfile /></main>
     );
   if (!user)
     return (
       <Landing
         onStart={() => setShowSignIn(true)}
         onGuest={useGuest}
+        authError={authError}
         googleSignIn={showSignIn ? <GoogleSignIn onSignedIn={signIn} /> : null}
       />
     );
@@ -339,7 +333,6 @@ export default function App() {
                     <ClassroomsPage
                       user={user}
                       onRequireSignIn={() => {
-                        localStorage.removeItem(GUEST_ID_KEY);
                         setUser(null);
                         setShowSignIn(true);
                       }}

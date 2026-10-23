@@ -5,15 +5,21 @@ import logging
 import os, re, secrets, uuid
 from threading import Timer
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from google.auth.exceptions import GoogleAuthError
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pymongo import MongoClient
-from pymongo.errors import OperationFailure, PyMongoError
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+from database import current_session, reset_request_session, session_factory, session_scope, set_request_session
+from persistence import db
+from orm_models import TopicSession
 
 from models import (
     ClassroomAssessmentIn,
@@ -24,6 +30,8 @@ from models import (
     ClassroomSubmissionIn,
     CompleteIn,
     CurriculumConceptIn,
+    CurriculumDraftApplyIn,
+    CurriculumDraftModuleIn,
     CurriculumGenerateIn,
     CurriculumMaterialIn,
     CurriculumModuleIn,
@@ -52,30 +60,43 @@ FRONTEND_ORIGINS = [
     ).split(",")
     if origin.strip()
 ]
-db = MongoClient(os.environ["MONGODB_URI"], serverSelectionTimeoutMS=5000)[
-    os.getenv("DATABASE_NAME", "learning_assistant")
-]
-
+FRONTEND_ORIGIN_REGEX = os.getenv("FRONTEND_ORIGIN_REGEX", "").strip() or None
+if FRONTEND_ORIGIN_REGEX:
+    re.compile(FRONTEND_ORIGIN_REGEX)
 app = FastAPI(title="AI Learning Assistant")
 logger = logging.getLogger("uvicorn.error")
 SESSION_COOKIE = "curiosity_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1209600"))
+SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN", "").strip() or None
+_cookie_secure = os.getenv("SESSION_COOKIE_SECURE")
 SESSION_COOKIE_SECURE = (
-    os.getenv("APP_ENV", "development").lower() != "development"
+    _cookie_secure.lower() in {"1", "true", "yes"}
+    if _cookie_secure is not None
+    else os.getenv("APP_ENV", "development").lower() != "development"
     or any(origin.startswith("https://") for origin in FRONTEND_ORIGINS)
 )
-SESSION_COOKIE_SAMESITE = "none" if SESSION_COOKIE_SECURE else "lax"
+SESSION_COOKIE_SAMESITE = os.getenv(
+    "SESSION_COOKIE_SAMESITE", "none" if SESSION_COOKIE_SECURE else "lax"
+).strip().lower()
+if SESSION_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+    raise ValueError("SESSION_COOKIE_SAMESITE must be Lax, Strict, or None.")
+if SESSION_COOKIE_SAMESITE == "none" and not SESSION_COOKIE_SECURE:
+    raise ValueError("SameSite=None cookies require SESSION_COOKIE_SECURE=true.")
 CLASSROOM_UNDO_SECONDS = 5
 _classroom_delete_timers: dict[str, Timer] = {}
 
 
 def session_cookie_settings():
-    return {
+    settings = {
         "httponly": True,
         "secure": SESSION_COOKIE_SECURE,
         "samesite": SESSION_COOKIE_SAMESITE,
         "path": "/",
+        "max_age": SESSION_TTL_SECONDS,
     }
+    if SESSION_COOKIE_DOMAIN:
+        settings["domain"] = SESSION_COOKIE_DOMAIN
+    return settings
 
 
 def now() -> datetime:
@@ -126,23 +147,69 @@ def is_valid_csrf_token(session_id: str | None, csrf_token: str | None) -> bool:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,
+    allow_origin_regex=FRONTEND_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+def _origin_allowed(origin: str) -> bool:
+    try:
+        parsed = urlsplit(origin)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return False
+        normalized = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    except ValueError:
+        return False
+    return normalized in FRONTEND_ORIGINS or bool(
+        FRONTEND_ORIGIN_REGEX and re.fullmatch(FRONTEND_ORIGIN_REGEX, normalized)
+    )
+
+
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):
-    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
-        return await call_next(request)
-    if request.url.path in {"/api/auth/google", "/api/auth/logout"}:
-        return await call_next(request)
-    session_id = request.cookies.get(SESSION_COOKIE)
-    csrf_token = request.headers.get("X-CSRF-Token")
-    if is_valid_csrf_token(session_id, csrf_token):
-        return await call_next(request)
-    raise err(403, "csrf_invalid", "Invalid or missing CSRF token.")
+    with session_scope() as session:
+        token = set_request_session(session)
+        try:
+            if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+                origin = request.headers.get("origin")
+                referer = request.headers.get("referer")
+                source = origin or (f"{urlsplit(referer).scheme}://{urlsplit(referer).netloc}" if referer else None)
+                if source and not _origin_allowed(source):
+                    session.rollback()
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": {"code": "origin_forbidden", "message": "This request origin is not allowed."}},
+                    )
+
+            if (
+                request.method in {"POST", "PUT", "PATCH", "DELETE"}
+                and request.url.path not in {"/api/auth/google", "/api/auth/guest", "/api/auth/logout"}
+                and request.cookies.get(SESSION_COOKIE)
+            ):
+                session_id = request.cookies.get(SESSION_COOKIE)
+                csrf_token = request.headers.get("X-CSRF-Token")
+                if not await run_in_threadpool(is_valid_csrf_token, session_id, csrf_token):
+                    session.rollback()
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": {"code": "csrf_invalid", "message": "Invalid or missing CSRF token."}},
+                    )
+            response = await call_next(request)
+            if response.status_code >= 400:
+                session.rollback()
+            if response.status_code == 401 and request.cookies.get(SESSION_COOKIE):
+                response.delete_cookie(
+                    key=SESSION_COOKIE,
+                    path="/",
+                    secure=SESSION_COOKIE_SECURE,
+                    samesite=SESSION_COOKIE_SAMESITE,
+                    domain=SESSION_COOKIE_DOMAIN,
+                )
+            return response
+        finally:
+            reset_request_session(token)
 
 
 def now_iso() -> str:
@@ -243,12 +310,13 @@ def _purge_classroom_data(classroom_id: str):
 
 
 def finalize_classroom_delete(classroom_id: str, token: str):
-    claim = db.classrooms.update_one(
-        {"_id": classroom_id, "deletionToken": token, "deletionState": "pending"},
-        {"$set": {"deletionState": "purging"}},
-    )
-    if claim.matched_count:
-        _purge_classroom_data(classroom_id)
+    with session_scope():
+        claim = db.classrooms.update_one(
+            {"_id": classroom_id, "deletionToken": token, "deletionState": "pending"},
+            {"$set": {"deletionState": "purging"}},
+        )
+        if claim.matched_count:
+            _purge_classroom_data(classroom_id)
 
 
 def _schedule_classroom_delete(classroom_id: str, token: str, delay: float = CLASSROOM_UNDO_SECONDS):
@@ -369,22 +437,33 @@ def require_classroom_editor(classroom_id: str, user: dict):
 
 def get_classroom_curriculum(classroom_id: str, user: dict):
     classroom = get_classroom(classroom_id, user)
-    modules = list(db.classroom_modules.find({"classroomId": classroom_id}))
-    modules.sort(key=lambda row: row.get("position", 0))
-    result = []
     curriculum_status = classroom.get("curriculumStatus")
     if curriculum_status is None:
         curriculum_status = "published" if db.classroom_curriculum_topics.find_one({"classroomId": classroom_id, "published": True}) else "draft"
-    visible = curriculum_status == "published" or _classroom_editor(db.classrooms.find_one({"_id": classroom_id}), user)
+    editor = _classroom_editor(classroom, user)
+    visible = curriculum_status == "published" or editor
+    if not visible:
+        return {"classroom": classroom, "modules": [], "status": curriculum_status, "version": classroom.get("curriculumVersion", 0)}
+
+    modules = list(db.classroom_modules.find({"classroomId": classroom_id}))
+    modules.sort(key=lambda row: row.get("position", 0))
+    module_ids = [module["_id"] for module in modules]
+    topics = list(db.classroom_curriculum_topics.find(
+        {"classroomId": classroom_id, "moduleId": {"$in": module_ids}},
+    )) if module_ids else []
+    topics_by_module: dict[str, list[dict]] = {module_id: [] for module_id in module_ids}
+    for topic in topics:
+        topics_by_module[topic["moduleId"]].append(topic)
+    for module_topics in topics_by_module.values():
+        module_topics.sort(key=lambda row: row.get("position", 0))
+
+    result = []
     for module in modules:
-        topics = list(db.classroom_curriculum_topics.find({"classroomId": classroom_id, "moduleId": module["_id"]}))
-        topics.sort(key=lambda row: row.get("position", 0))
-        if not visible:
-            continue
+        module_topics = topics_by_module[module["_id"]]
         result.append({
             "id": module["_id"], "title": module["title"], "description": module.get("description", ""),
             "position": module.get("position", 0),
-            "topics": [{**{k: v for k, v in topic.items() if k != "_id"}, "id": topic["_id"]} for topic in topics if _classroom_editor(db.classrooms.find_one({"_id": classroom_id}), user) or topic.get("published", False)],
+            "topics": [{**{k: v for k, v in topic.items() if k != "_id"}, "id": topic["_id"]} for topic in module_topics if editor or topic.get("published", False)],
         })
     return {"classroom": classroom, "modules": result, "status": curriculum_status, "version": classroom.get("curriculumVersion", 0)}
 
@@ -1007,6 +1086,10 @@ def join_classroom(payload: dict, user: dict):
     classroom = db.classrooms.find_one({"joinCode": str(payload.get("joinCode", "")).strip().upper()})
     if not classroom:
         raise err(404, "not_found", "Join code not found.")
+    if hasattr(db, "join_member"):
+        db.join_member(classroom["_id"], user["id"], role, now())
+        classroom = db.classrooms.find_one({"_id": classroom["_id"]})
+        return classroom_payload(classroom)
     members = classroom.get("members", [])
     if not any(m.get("userId") == user["id"] for m in members):
         members.append({"userId": user["id"], "role": role, "joinedAt": now_iso()})
@@ -1044,7 +1127,19 @@ def auth_session_status(session_id: str | None):
         return {"authenticated": False, "user": None}
     csrf = secrets.token_urlsafe(32)
     db.sessions.update_one({"_id": session_id}, {"$set": {"csrf_token_hash": hash_token(csrf)}})
-    return {"authenticated": True, "csrfToken": csrf, "user": {"id": user_id, "name": user.get("name", "Learner"), "email": user.get("email", ""), "picture": user.get("picture", ""), "role": normalize_role(user.get("role"))}}
+    is_guest = user_id.startswith("guest_")
+    return {
+        "authenticated": True,
+        "csrfToken": csrf,
+        "user": {
+            "id": user_id,
+            "name": user.get("name", "Guest" if is_guest else "Learner"),
+            "email": user.get("email", ""),
+            "picture": user.get("picture", ""),
+            "role": "STUDENT" if is_guest else normalize_role(user.get("role")),
+            "isGuest": is_guest,
+        },
+    }
 
 
 def create_classroom_assessment(classroom_id: str, payload: ClassroomAssessmentIn, user: dict):
@@ -1177,7 +1272,12 @@ def submit_classroom_assessment(classroom_id: str, assessment_id: str, payload: 
     if db.classroom_submissions.find_one({"assessmentId": assessment_id, "studentId": user["id"]}):
         raise err(409, "submission_exists", "A submission already exists for this assessment.")
     submission = {"_id": f"submission_{uuid.uuid4().hex[:12]}", "classroomId": classroom_id, "assessmentId": assessment_id, "studentId": user["id"], "answer": payload.answer.strip(), "status": "submitted", "evaluationStatus": "pending", "submittedAt": now()}
-    db.classroom_submissions.insert_one(submission)
+    try:
+        db.classroom_submissions.insert_one(submission)
+    except IntegrityError as exc:
+        if "uq_submission_student_assessment" in str(exc.orig):
+            raise err(409, "submission_exists", "A submission already exists for this assessment.") from exc
+        raise
     return {**{k: v for k, v in submission.items() if k != "_id"}, "id": submission["_id"]}
 
 
@@ -1242,14 +1342,37 @@ def evaluate_classroom_submission(classroom_id: str, assessment_id: str, submiss
 
 
 def list_classroom_posts(classroom_id: str, user: dict):
-    get_classroom(classroom_id, user)
+    classroom = db.classrooms.find_one({"_id": classroom_id})
+    if not classroom or classroom.get("deletionState") == "pending":
+        raise err(404, "not_found", "Classroom not found.")
+
+    role = require_role(user, "ADMIN", "FACULTY", "STUDENT")
+    member = any(m.get("userId") == user["id"] for m in classroom.get("members", []))
+    if role != "ADMIN" and classroom.get("ownerId") != user["id"] and not member:
+        raise err(403, "forbidden", "You do not have access to this classroom.")
+
     posts = list(db.classroom_posts.find({"classroomId": classroom_id}))
     posts.sort(key=lambda row: row.get("createdAt", now()), reverse=True)
+
+    if not posts:
+        return []
+
+    post_ids = [post["_id"] for post in posts]
+    replies_by_post: dict[str, list[dict]] = {post_id: [] for post_id in post_ids}
+    for reply in db.classroom_replies.find({"classroomId": classroom_id, "postId": {"$in": post_ids}}):
+        replies_by_post.setdefault(reply["postId"], []).append(reply)
+
+    for reply_group in replies_by_post.values():
+        reply_group.sort(key=lambda row: row.get("createdAt", now()))
+
     result = []
     for post in posts:
-        replies = list(db.classroom_replies.find({"classroomId": classroom_id, "postId": post["_id"]}))
-        replies.sort(key=lambda row: row.get("createdAt", now()))
-        result.append({**{k: v for k, v in post.items() if k != "_id"}, "id": post["_id"], "replies": [{**{k: v for k, v in row.items() if k != "_id"}, "id": row["_id"]} for row in replies]})
+        post_replies = replies_by_post.get(post["_id"], [])
+        result.append({
+            **{k: v for k, v in post.items() if k != "_id"},
+            "id": post["_id"],
+            "replies": [{**{k: v for k, v in row.items() if k != "_id"}, "id": row["_id"]} for row in post_replies],
+        })
     return result
 
 
@@ -1273,40 +1396,22 @@ def create_classroom_reply(classroom_id: str, post_id: str, payload: ClassroomRe
 
 def current_user(
     request: Request,
-    guest_id: str | None = Header(default=None, alias="X-Guest-ID"),
 ):
     session_id = request.cookies.get(SESSION_COOKIE)
     user_id = get_session_user_id(session_id)
     if user_id:
         user = db.users.find_one({"_id": user_id})
         if user:
+            is_guest = user_id.startswith("guest_")
             return {
                 "id": user["_id"],
-                "name": user.get("name", "Learner"),
+                "name": user.get("name", "Guest" if is_guest else "Learner"),
                 "email": user.get("email", ""),
                 "picture": user.get("picture", ""),
-                "role": normalize_role(user.get("role")),
+                "role": "STUDENT" if is_guest else normalize_role(user.get("role")),
+                "isGuest": is_guest,
             }
         db.sessions.delete_one({"_id": session_id})
-    if guest_id and re.fullmatch(r"guest_[0-9a-f-]{36}", guest_id):
-        db.users.update_one(
-            {"_id": guest_id},
-            {
-                "$set": {"name": "Guest", "email": "", "picture": "", "updatedAt": now_iso()},
-                "$setOnInsert": {
-                    "createdAt": now_iso(),
-                    "stats": {
-                        "topicsStudied": 0,
-                        "sessionsCompleted": 0,
-                        "averageScore": 0,
-                        "cardsReviewed": 0,
-                        "quizzesCompleted": 0,
-                    },
-                },
-            },
-            upsert=True,
-        )
-        return {"id": guest_id, "name": "Guest", "email": "", "picture": "", "role": "STUDENT", "isGuest": True}
     raise err(401, "auth_required", "Sign in with Google to continue.")
 
 
@@ -1348,8 +1453,11 @@ def verify_google_credential(credential: str):
 
 
 @app.post("/api/auth/google")
-def google_auth(body: GoogleAuthIn, response: Response):
+def google_auth(body: GoogleAuthIn, request: Request, response: Response):
     claims = verify_google_credential(body.credential)
+    existing_session_id = request.cookies.get(SESSION_COOKIE)
+    if existing_session_id:
+        db.sessions.delete_one({"_id": existing_session_id})
     user_id = claims["sub"]
     existing = db.users.find_one({"_id": user_id}) or {}
     role = normalize_role(existing.get("role"))
@@ -1398,6 +1506,45 @@ def google_auth(body: GoogleAuthIn, response: Response):
     }
 
 
+@app.post("/api/auth/guest")
+def create_guest_session(request: Request, response: Response):
+    existing_session_id = request.cookies.get(SESSION_COOKIE)
+    if existing_session_id:
+        existing_user_id = get_session_user_id(existing_session_id)
+        if existing_user_id:
+            existing_user = db.users.find_one({"_id": existing_user_id}) or {}
+            if existing_user_id.startswith("guest_"):
+                csrf = secrets.token_urlsafe(32)
+                db.sessions.update_one(
+                    {"_id": existing_session_id},
+                    {"$set": {"csrf_token_hash": hash_token(csrf)}},
+                )
+                return {
+                    "user": {"id": existing_user_id, "name": existing_user.get("name", "Guest"), "email": "", "picture": "", "role": "STUDENT", "isGuest": True},
+                    "csrfToken": csrf,
+                }
+
+    guest_id = f"guest_{secrets.token_urlsafe(24)}"
+    db.users.insert_one({
+        "_id": guest_id,
+        "name": "Guest",
+        "email": "",
+        "picture": "",
+        "role": "STUDENT",
+        "createdAt": now(),
+        "updatedAt": now(),
+        "stats": {"topicsStudied": 0, "sessionsCompleted": 0, "averageScore": 0, "cardsReviewed": 0, "quizzesCompleted": 0},
+    })
+    session = create_session(guest_id)
+    response.set_cookie(key=SESSION_COOKIE, value=session["id"], **session_cookie_settings())
+    if existing_session_id:
+        db.sessions.delete_one({"_id": existing_session_id})
+    return {
+        "user": {"id": guest_id, "name": "Guest", "email": "", "picture": "", "role": "STUDENT", "isGuest": True},
+        "csrfToken": session["csrf_token"],
+    }
+
+
 @app.post("/api/auth/logout")
 def logout(request: Request, response: Response):
     session_id = request.cookies.get(SESSION_COOKIE)
@@ -1408,22 +1555,13 @@ def logout(request: Request, response: Response):
         path="/",
         secure=SESSION_COOKIE_SECURE,
         samesite=SESSION_COOKIE_SAMESITE,
+        domain=SESSION_COOKIE_DOMAIN,
     )
     return {"status": "ok"}
 
 
-@app.exception_handler(PyMongoError)
-async def db_error(_: Request, __: PyMongoError):
-    if isinstance(__, OperationFailure) and __.code == 8000:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "detail": {
-                    "code": "database_auth_failed",
-                    "message": "MongoDB rejected the username or password. Check the Atlas database user and URL encoding.",
-                }
-            },
-        )
+@app.exception_handler(SQLAlchemyError)
+async def db_error(_: Request, __: SQLAlchemyError):
     return JSONResponse(
         status_code=503,
         content={
@@ -1440,20 +1578,7 @@ def health():
     try:
         db.client.admin.command("ping")
         return {"status": "ok", "database": "connected"}
-    except OperationFailure as exc:
-        if exc.code == 8000:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "status": "error",
-                    "code": "database_auth_failed",
-                    "message": "MongoDB rejected the username or password.",
-                },
-            )
-        return JSONResponse(
-            status_code=503, content={"status": "error", "code": "database_unavailable"}
-        )
-    except PyMongoError:
+    except SQLAlchemyError:
         return JSONResponse(
             status_code=503, content={"status": "error", "code": "database_unavailable"}
         )
@@ -1509,7 +1634,7 @@ def learn(body: LearnIn, user: dict = Depends(current_user)):
 
 
 @app.post("/api/learn/document")
-async def learn_document(
+def learn_document(
     file: UploadFile = File(...),
     difficulty: str = Form("beginner"),
     provider: str = Form("groq"),
@@ -1519,7 +1644,7 @@ async def learn_document(
 ):
     if not file.filename:
         raise err(400, "unsupported_file", "No document file was provided.")
-    raw = await file.read()
+    raw = file.file.read()
     if not raw or not raw.strip():
         raise err(400, "empty_document", "The uploaded document is empty.")
     try:
@@ -1703,12 +1828,32 @@ def learn_stream(body: LearnIn, user: dict = Depends(current_user)):
                 },
                 upsert=True,
             )
+            current_session().commit()
             yield 'data: {"stage":"ready"}\n\n'
             yield f"data: {json.dumps({'sessionId': sid, 'topic': lesson.topic, 'learningContent': data})}\n\n"
         except LLMError as error:
             yield f"data: {json.dumps({'error': error.code, 'message': error.message})}\n\n"
 
-    return StreamingResponse(events(), media_type="text/event-stream")
+    def stream_events():
+        session = session_factory()()
+        iterator = events()
+        try:
+            while True:
+                token = set_request_session(session)
+                try:
+                    chunk = next(iterator)
+                except StopIteration:
+                    return
+                finally:
+                    reset_request_session(token)
+                yield chunk
+        except BaseException:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    return StreamingResponse(stream_events(), media_type="text/event-stream")
 
 
 def recompute_stats(user_id):
@@ -2011,18 +2156,49 @@ def refine(sid: str, body: RefineIn, user: dict = Depends(current_user)):
 def profile(user: dict = Depends(current_user)):
     user_id = user["id"]
     u = out(db.users.find_one({"_id": user_id}))
+
+    retest_counts = {}
+    for row in db.sessions.find(
+        {"userId": user_id, "input.retest": True},
+        {"topicId": 1},
+    ):
+        topic_id = row.get("topicId")
+        if topic_id:
+            retest_counts[topic_id] = retest_counts.get(topic_id, 0) + 1
+
+    topic_projection = {
+        "_id": 1,
+        "userId": 1,
+        "name": 1,
+        "firstStudied": 1,
+        "lastStudied": 1,
+        "summary": 1,
+        "keyConcepts": 1,
+        "progress": 1,
+    }
     topics = []
     for topic in db.topics.find(
-        {"userId": user_id, "progress.sessionsCompleted": {"$gt": 0}}
+        {"userId": user_id, "progress.sessionsCompleted": {"$gt": 0}},
+        topic_projection,
     ):
         item = out(topic)
-        item["retestsUsed"] = db.sessions.count_documents(
-            {"userId": user_id, "topicId": item["id"], "input.retest": True}
-        )
+        item["retestsUsed"] = retest_counts.get(item.get("id"), 0)
         topics.append(item)
+
+    topic_ids = [topic["id"] for topic in topics]
+    session_ids_by_topic: dict[str, list[str]] = {topic_id: [] for topic_id in topic_ids}
+    if topic_ids:
+        for topic_id, session_id in current_session().execute(
+            select(TopicSession.topicId, TopicSession.sessionId).where(TopicSession.topicId.in_(topic_ids))
+        ):
+            session_ids_by_topic[topic_id].append(session_id)
+    for topic in topics:
+        topic["sessionIds"] = session_ids_by_topic[topic["id"]]
+
     return {
         **u,
         "role": normalize_role(user.get("role")),
+        **({"isGuest": True} if user.get("isGuest") else {}),
         "strong": [t for t in topics if t["progress"]["score"] >= 80],
         "needsReview": [t for t in topics if t["progress"]["score"] < 70],
         "recent": [
@@ -2097,9 +2273,57 @@ def generate_classroom_curriculum_route(
         raise err(504 if exc.code == "timeout" else 502, exc.code, exc.message)
 
 
+@app.post("/api/classrooms/{classroom_id}/curriculum/draft")
+def apply_classroom_curriculum_draft_route(
+    classroom_id: str,
+    body: CurriculumDraftApplyIn,
+    user: dict = Depends(current_user),
+):
+    require_classroom_editor(classroom_id, user)
+    module_position = db.classroom_modules.count_documents({"classroomId": classroom_id})
+    for module_offset, draft_module in enumerate(body.modules):
+        module_id = f"module_{uuid.uuid4().hex[:12]}"
+        db.classroom_modules.insert_one({
+            "_id": module_id,
+            "classroomId": classroom_id,
+            "title": draft_module.title.strip(),
+            "description": draft_module.description.strip(),
+            "position": module_position + module_offset,
+            "createdAt": now_iso(),
+            "updatedAt": now_iso(),
+        })
+        for topic_position, draft_topic in enumerate(draft_module.topics):
+            db.classroom_curriculum_topics.insert_one({
+                "_id": f"topic_{uuid.uuid4().hex[:12]}",
+                "classroomId": classroom_id,
+                "moduleId": module_id,
+                "title": draft_topic.title.strip(),
+                "description": draft_topic.description.strip(),
+                "learningObjectives": [value.strip() for value in draft_topic.learningObjectives if value.strip()],
+                "prerequisites": draft_topic.prerequisites,
+                "concepts": [concept.model_dump() for concept in draft_topic.concepts],
+                "materials": [material.model_dump() for material in draft_topic.materials],
+                "position": topic_position,
+                "published": False,
+                "createdAt": now_iso(),
+                "updatedAt": now_iso(),
+            })
+    return get_classroom_curriculum(classroom_id, user)
+
+
 @app.get("/api/auth/session")
-def auth_session(request: Request):
-    return auth_session_status(request.cookies.get(SESSION_COOKIE))
+def auth_session(request: Request, response: Response):
+    session_id = request.cookies.get(SESSION_COOKIE)
+    status = auth_session_status(session_id)
+    if not status["authenticated"]:
+        response.delete_cookie(
+            key=SESSION_COOKIE,
+            path="/",
+            secure=SESSION_COOKIE_SECURE,
+            samesite=SESSION_COOKIE_SAMESITE,
+            domain=SESSION_COOKIE_DOMAIN,
+        )
+    return status
 
 
 @app.get("/api/admin/users")

@@ -1,7 +1,10 @@
 fastapi
 uvicorn
 pydantic>=2
-pymongo[srv]
+SQLAlchemy>=2.0,<3
+alembic>=1.13,<2
+psycopg[binary]>=3.2,<4
+pymongo[srv]>=4.6,<5
 openai
 python-dotenv
 google-auth

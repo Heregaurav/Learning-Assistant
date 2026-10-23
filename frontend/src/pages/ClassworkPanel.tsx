@@ -9,6 +9,7 @@ import {
   submitClassroomAssessment,
 } from "../lib/api";
 import type { ClassroomAssessment, ClassroomSubmission } from "../types";
+import { SkeletonList } from "../components/Skeletons";
 
 type Props = {
   classroomId: string;
@@ -200,7 +201,7 @@ export default function ClassworkPanel({ classroomId, canEdit }: Props) {
         </div>
       )}
 
-      {loading ? <p className="py-6 text-sm text-primary/70">Loading classwork…</p> : assessments.length === 0 ? (
+      {loading ? <div aria-busy="true" aria-label="Loading classwork"><p className="sr-only" role="status">Loading classwork…</p><SkeletonList count={3} /></div> : assessments.length === 0 ? (
         <p className="py-6 text-sm text-primary/70">No classwork has been published.</p>
       ) : (
         <div className="divide-y divide-primary/15">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getPlatformUsers, updatePlatformUserRole } from "../lib/api";
 import type { PlatformUser } from "../lib/api";
+import { SkeletonList } from "../components/Skeletons";
 
 type Props = { currentUserId: string };
 
@@ -48,7 +49,7 @@ export default function AdminUsers({ currentUserId }: Props) {
       <p className="mt-2 max-w-2xl text-sm text-[#D7D1B5]">New accounts start as students. Assign faculty access here; classroom permissions are enforced by the API.</p>
       {error && <p role="alert" className="mt-4 rounded-lg border border-red-400/40 bg-red-950/40 p-3 text-sm text-red-100">{error}</p>}
       {notice && <p role="status" className="mt-4 text-sm text-emerald-200">{notice}</p>}
-      {loading ? <p className="py-8 text-sm text-primary/70">Loading users…</p> : users.length === 0 ? (
+      {loading ? <div aria-busy="true" aria-label="Loading users"><p className="sr-only" role="status">Loading users…</p><SkeletonList count={5} /></div> : users.length === 0 ? (
         <p className="py-8 text-sm text-primary/70">No registered users yet.</p>
       ) : (
         <div className="mt-6 divide-y divide-primary/15 border-y border-primary/20">

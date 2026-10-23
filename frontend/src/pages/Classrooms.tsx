@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Check, LoaderCircle, Plus, Undo2, X } from "lucide-react";
 import { createClassroom, getClassrooms, joinClassroom, undoDeleteClassroom } from "../lib/api";
 import type { Classroom, Role } from "../types";
+import { SkeletonCard } from "../components/Skeletons";
 
 type Props = {
   user: { id: string; name: string; email: string; role?: Role; isGuest?: boolean } | null;
@@ -13,6 +14,7 @@ export default function ClassroomsPage({ user, onRequireSignIn }: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     name: "",
     subject: "",
@@ -41,6 +43,8 @@ export default function ClassroomsPage({ user, onRequireSignIn }: Props) {
         return;
       }
       setError((err as Error).message || "Unable to load classrooms.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -193,7 +197,12 @@ export default function ClassroomsPage({ user, onRequireSignIn }: Props) {
       )}
 
       <div className="mt-8 grid gap-4 md:grid-cols-2">
-        {classrooms.length === 0 ? (
+        {loading ? (
+          <div className="md:col-span-2 grid gap-4 md:grid-cols-2" aria-busy="true" aria-label="Loading classrooms">
+            <p className="sr-only" role="status">Loading classrooms…</p>
+            {Array.from({ length: 4 }, (_, index) => <SkeletonCard key={index} className="min-h-48"><span className="skeleton" style={{ width: "34%", height: 11 }} /><span className="skeleton" style={{ width: "62%", height: 24 }} /><span className="skeleton" style={{ width: "90%", height: 12 }} /><span className="skeleton" style={{ width: "72%", height: 12 }} /></SkeletonCard>)}
+          </div>
+        ) : classrooms.length === 0 ? (
           <div className="md:col-span-2 rounded-xl border border-dashed border-primary/30 bg-black/20 p-6 text-sm text-primary/70">
             No classrooms yet. Create one or use a join code to get started.
           </div>

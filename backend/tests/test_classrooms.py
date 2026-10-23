@@ -2,16 +2,18 @@ import os
 import sys
 import types
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
-from fastapi import Response
+from fastapi import Request, Response
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("MONGODB_URI", "mongodb://localhost:27017/testdb")
 
 import main  # noqa: E402
+import llm  # noqa: E402
 from models import Explanation, Flashcard, Lesson, QuizQuestion, Section  # noqa: E402
 
 
@@ -145,6 +147,13 @@ def _user(user_id: str):
     }
 
 
+def _request_with_cookie(cookie: str | None = None, headers: list[tuple[bytes, bytes]] | None = None):
+    request_headers = list(headers or [])
+    if cookie:
+        request_headers.append((b"cookie", f"curiosity_session={cookie}".encode()))
+    return Request({"type": "http", "method": "POST", "path": "/", "headers": request_headers})
+
+
 def _published_topic_for(student):
     classroom = main.create_classroom(
         {"name": "DBMS", "subject": "Database systems", "section": "A", "semester": "Fall", "description": ""},
@@ -226,6 +235,76 @@ def test_curriculum_generation_is_owner_scoped_and_returns_ai_draft(monkeypatch)
     assert denied.value.status_code == 403
 
 
+def test_applying_ai_curriculum_draft_batches_ordered_modules_and_topics():
+    reset_db()
+    owner = _user("faculty-1")
+    classroom = main.create_classroom(
+        {"name": "Operating Systems", "subject": "CS", "section": "A", "semester": "Fall", "description": ""},
+        owner,
+    )
+    draft = main.CurriculumDraftApplyIn(modules=[
+        main.CurriculumDraftModuleIn(
+            title="Foundations",
+            description="Core ideas",
+            topics=[
+                main.CurriculumTopicIn(title="Processes", learningObjectives=["Explain a process"]),
+                main.CurriculumTopicIn(title="Threads"),
+            ],
+        ),
+        main.CurriculumDraftModuleIn(
+            title="Memory",
+            topics=[main.CurriculumTopicIn(title="Virtual memory")],
+        ),
+    ])
+
+    result = main.apply_classroom_curriculum_draft_route(classroom["id"], draft, owner)
+
+    assert result["status"] == "draft"
+    assert [module["title"] for module in result["modules"]] == ["Foundations", "Memory"]
+    assert [topic["title"] for topic in result["modules"][0]["topics"]] == ["Processes", "Threads"]
+    assert [topic["position"] for topic in result["modules"][0]["topics"]] == [0, 1]
+    assert result["modules"][0]["topics"][0]["learningObjectives"] == ["Explain a process"]
+    with pytest.raises(main.HTTPException) as denied:
+        main.apply_classroom_curriculum_draft_route(classroom["id"], draft, _user("student-1"))
+    assert denied.value.status_code == 403
+
+
+def test_curriculum_prompt_requests_concise_module_detail_without_changing_schema(monkeypatch):
+    generated = {
+        "modules": [{
+            "title": "Core Concepts",
+            "description": "Introduces the foundations and their role in the course.",
+            "topics": [{
+                "title": "Processes",
+                "description": "How programs execute and share resources.",
+                "learningObjectives": ["Describe process states"],
+                "prerequisites": [],
+                "concepts": [{"name": "Process state", "description": "An execution condition.", "prerequisites": []}],
+            }],
+        }]
+    }
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=json.dumps(generated)))]
+            )
+
+    fake_client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=FakeCompletions()))
+    monkeypatch.setattr(llm, "client", lambda _provider: fake_client)
+
+    result = llm.generate_curriculum("Operating systems syllabus")
+
+    assert result == generated
+    system_prompt = captured["messages"][0]["content"]
+    assert '"description":"..."' in system_prompt
+    assert "1-2 sentences" in system_prompt
+    assert "modest, syllabus-proportional set" in system_prompt
+    assert "not over-detailed" in system_prompt
+
+
 def test_curriculum_stays_draft_until_owner_publishes_and_initializes_student_path():
     reset_db()
     faculty = _user("faculty-1")
@@ -243,6 +322,44 @@ def test_curriculum_stays_draft_until_owner_publishes_and_initializes_student_pa
     assert visible["modules"][0]["topics"][0]["id"] == topic["id"]
     path = main.db.learning_paths.find_one({"classroomId": classroom["id"], "userId": student["id"]})
     assert path["path"]["items"][0]["topicId"] == topic["id"]
+
+
+def test_legacy_missing_curriculum_status_infers_published_state():
+    reset_db()
+    faculty = _user("faculty-1")
+    student = _user("student-1")
+    classroom_id = "legacy-classroom"
+    main.db.classrooms.insert_one({
+        "_id": classroom_id,
+        "ownerId": faculty["id"],
+        "joinCode": "OLD123",
+        "curriculumVersion": 2,
+        "members": [
+            {"userId": faculty["id"], "role": "OWNER"},
+            {"userId": student["id"], "role": "STUDENT"},
+        ],
+    })
+    main.db.classroom_modules.insert_one({
+        "_id": "legacy-module",
+        "classroomId": classroom_id,
+        "title": "Legacy module",
+        "position": 0,
+    })
+    main.db.classroom_curriculum_topics.insert_one({
+        "_id": "legacy-published-topic",
+        "classroomId": classroom_id,
+        "moduleId": "legacy-module",
+        "title": "Published topic",
+        "position": 0,
+        "published": True,
+    })
+
+    result = main.get_classroom_curriculum(classroom_id, student)
+
+    assert result["status"] == "published"
+    assert result["version"] == 2
+    assert [topic["id"] for topic in result["modules"][0]["topics"]] == ["legacy-published-topic"]
+    assert "joinCode" not in result["classroom"]
 
 
 def test_classroom_delete_can_be_undone_before_purge():
@@ -389,7 +506,7 @@ def test_google_auth_user_upsert_uses_non_conflicting_role_update(monkeypatch):
         },
     )
 
-    result = main.google_auth(main.GoogleAuthIn(credential="x" * 20), Response())
+    result = main.google_auth(main.GoogleAuthIn(credential="x" * 20), _request_with_cookie(), Response())
 
     assert result["user"]["id"] == "new-google-user"
     assert result["user"]["role"] == "STUDENT"
@@ -413,7 +530,7 @@ def test_verified_bootstrap_email_becomes_first_admin_once(monkeypatch):
         },
     )
 
-    result = main.google_auth(main.GoogleAuthIn(credential="x" * 20), Response())
+    result = main.google_auth(main.GoogleAuthIn(credential="x" * 20), _request_with_cookie(), Response())
 
     assert result["user"]["role"] == "ADMIN"
     assert main.db.users.find_one({"_id": "bootstrap-user"})["role"] == "ADMIN"
@@ -434,7 +551,7 @@ def test_bootstrap_email_cannot_create_second_admin(monkeypatch):
         },
     )
 
-    result = main.google_auth(main.GoogleAuthIn(credential="x" * 20), Response())
+    result = main.google_auth(main.GoogleAuthIn(credential="x" * 20), _request_with_cookie(), Response())
 
     assert result["user"]["role"] == "STUDENT"
 
@@ -469,9 +586,96 @@ def test_auth_status_returns_unauthenticated_without_http_error():
     assert result == {"authenticated": False, "user": None}
 
 
+def test_guest_session_is_server_issued_cookie_and_persists_on_refresh():
+    reset_db()
+    response = Response()
+
+    result = main.create_guest_session(_request_with_cookie(), response)
+
+    cookie_header = response.headers["set-cookie"]
+    session_id = cookie_header.split("curiosity_session=", 1)[1].split(";", 1)[0]
+    assert "httponly" in cookie_header.lower()
+    assert result["user"]["id"].startswith("guest_")
+    assert result["user"]["role"] == "STUDENT"
+    assert result["user"]["isGuest"] is True
+    assert session_id != result["user"]["id"]
+    assert session_id not in str(result)
+
+    refreshed = main.auth_session_status(session_id)
+    assert refreshed["authenticated"] is True
+    assert refreshed["user"]["id"] == result["user"]["id"]
+    assert refreshed["user"]["isGuest"] is True
+    assert main.current_user(_request_with_cookie(session_id))["role"] == "STUDENT"
+
+
+def test_guest_header_is_not_accepted_as_authentication():
+    reset_db()
+    main.db.users.insert_one({"_id": "guest_legacy", "name": "Guest", "role": "STUDENT"})
+
+    with pytest.raises(main.HTTPException) as denied:
+        main.current_user(_request_with_cookie(headers=[(b"x-guest-id", b"guest_legacy")]))
+
+    assert denied.value.status_code == 401
+
+
+def test_logout_revokes_cookie_session_and_clears_cookie():
+    reset_db()
+    session = main.create_session("student-1")
+    response = Response()
+
+    result = main.logout(_request_with_cookie(session["id"]), response)
+
+    assert result == {"status": "ok"}
+    assert main.db.sessions.find_one({"_id": session["id"]}) is None
+    assert 'curiosity_session=""' in response.headers["set-cookie"]
+    assert "max-age=0" in response.headers["set-cookie"].lower()
+
+
+def test_google_login_rotates_guest_session_without_merging_guest_data(monkeypatch):
+    reset_db()
+    guest_response = Response()
+    guest = main.create_guest_session(_request_with_cookie(), guest_response)
+    old_session_id = guest_response.headers["set-cookie"].split("curiosity_session=", 1)[1].split(";", 1)[0]
+    main.db.topics.insert_one({"_id": "guest-topic", "userId": guest["user"]["id"], "name": "Guest topic"})
+    monkeypatch.setattr(main, "verify_google_credential", lambda _: {
+        "sub": "google-after-guest", "name": "Google User", "email": "google@example.com",
+        "iss": "https://accounts.google.com",
+    })
+    google_response = Response()
+
+    result = main.google_auth(
+        main.GoogleAuthIn(credential="x" * 20),
+        _request_with_cookie(old_session_id),
+        google_response,
+    )
+
+    new_session_id = google_response.headers["set-cookie"].split("curiosity_session=", 1)[1].split(";", 1)[0]
+    assert new_session_id != old_session_id
+    assert main.db.sessions.find_one({"_id": old_session_id}) is None
+    assert main.db.sessions.find_one({"_id": new_session_id})["user_id"] == "google-after-guest"
+    assert main.db.topics.find_one({"_id": "guest-topic"})["userId"] == guest["user"]["id"]
+    assert result["user"]["id"] == "google-after-guest"
+    assert new_session_id not in str(result)
+
+
+def test_csrf_validation_and_origin_allowlist(monkeypatch):
+    reset_db()
+    session = main.create_session("student-1", csrf_token="known-csrf")
+
+    assert main.is_valid_csrf_token(session["id"], "known-csrf") is True
+    assert main.is_valid_csrf_token(session["id"], "wrong-token") is False
+    assert main._origin_allowed("http://localhost:5174") is True
+    assert main._origin_allowed("https://malicious.example") is False
+
+    monkeypatch.setattr(main, "FRONTEND_ORIGIN_REGEX", r"https://[a-z0-9-]+\.vercel\.app")
+    assert main._origin_allowed("https://curiosity-preview.vercel.app") is True
+    assert main._origin_allowed("https://evil.example") is False
+
+
 def test_session_cookie_is_cross_site_compatible_when_secure(monkeypatch):
     monkeypatch.setattr(main, "SESSION_COOKIE_SECURE", True)
     monkeypatch.setattr(main, "SESSION_COOKIE_SAMESITE", "none")
+    monkeypatch.setattr(main, "SESSION_COOKIE_DOMAIN", None)
 
     settings = main.session_cookie_settings()
 
@@ -1384,6 +1588,64 @@ def test_classroom_stream_persists_discussions_and_limits_announcements_to_owner
 
     target = main.db.users.find_one({"_id": "student-1"})
     assert target["role"] == "FACULTY"
+
+
+def test_classroom_learning_prompt_handles_empty_optional_topic_fields():
+    prompt = main.render_classroom_learning_prompt(
+        "Explain the topic",
+        {"name": "DBMS", "subject": "Databases"},
+        {"title": "Foundations"},
+        {
+            "_id": "topic-empty",
+            "title": "Normalization",
+            "description": "",
+            "concepts": [],
+            "learningObjectives": [],
+            "prerequisites": [],
+            "materials": [],
+        },
+    )
+
+    assert "Expected concepts:\nNone specified" in prompt
+    assert "Learning objectives:\nNone specified" in prompt
+    assert "Prerequisites:\nNone specified" in prompt
+    assert "Teacher materials:\nNone provided" in prompt
+
+
+def test_classroom_ai_stream_emits_lesson_for_topic_without_optional_metadata(monkeypatch):
+    reset_db()
+    faculty = _user("faculty-1")
+    student = _user("student-1")
+    classroom = main.create_classroom(
+        {"name": "DBMS", "subject": "Databases", "section": "A", "semester": "Fall", "description": ""},
+        faculty,
+    )
+    module = main.create_curriculum_module(
+        classroom["id"], main.CurriculumModuleIn(title="Foundations"), faculty
+    )
+    topic = main.create_curriculum_topic(
+        classroom["id"], module["id"], main.CurriculumTopicIn(title="Normalization"), faculty
+    )
+    main.publish_classroom_curriculum(classroom["id"], faculty)
+    main.join_classroom({"joinCode": classroom["joinCode"]}, student)
+    monkeypatch.setattr(main, "generate_lesson", lambda *_args, **_kwargs: _fake_revision_lesson())
+
+    response = main.learn_stream(
+        main.LearnIn(
+            content="Explain normalization",
+            classroomId=classroom["id"],
+            curriculumTopicId=topic["id"],
+        ),
+        student,
+    )
+
+    async def consume():
+        return [chunk async for chunk in response.body_iterator]
+
+    chunks = asyncio.run(consume())
+    output = "".join(chunks)
+    assert '"stage":"ready"' in output
+    assert '"learningContent"' in output
 
 
 def test_student_cannot_view_other_classroom_details():

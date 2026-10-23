@@ -6,6 +6,7 @@ import { ArrowRight, Check, ClipboardCheck, FileText, Network, Sparkles } from "
 type LandingProps = {
   onStart: () => void;
   onGuest: () => void;
+  authError?: string;
   googleSignIn?: ReactNode;
 };
 
@@ -86,7 +87,7 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
-export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps) {
+export default function Landing({ onStart, onGuest, authError, googleSignIn }: LandingProps) {
   const handleStart = () => {
     onStart();
     window.requestAnimationFrame(() =>
@@ -190,6 +191,7 @@ export default function Landing({ onStart, onGuest, googleSignIn }: LandingProps
                 <button className="landing-guest-button" onClick={onGuest}>
                   Use as guest <ArrowRight size={14} />
                 </button>
+                {authError && <p className="err" role="alert">{authError}</p>}
               </Reveal>
             </div>
           </div>

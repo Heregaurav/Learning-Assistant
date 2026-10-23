@@ -3,7 +3,8 @@ import { useParams } from "react-router-dom";
 import { getSession } from "../lib/api";
 import { validateLesson } from "../lib/validate";
 import Lesson from "../components/Lesson";
-import { ErrorState, LoadingState } from "../components/States";
+import { ErrorState } from "../components/States";
+import { SkeletonLesson } from "../components/Skeletons";
 
 export default function Session() {
   const { id = "" } = useParams();
@@ -18,7 +19,7 @@ export default function Session() {
   };
   useEffect(load, [id]);
   if (err) return <ErrorState message={err} onRetry={load} />;
-  if (!s) return <LoadingState />;
+  if (!s) return <section aria-busy="true" aria-label="Loading saved lesson"><p className="sr-only" role="status">Loading saved lesson…</p><SkeletonLesson /></section>;
   const lesson = validateLesson(s.learningContent);
   if (!lesson)
     return (

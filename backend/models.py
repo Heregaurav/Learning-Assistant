@@ -7,23 +7,23 @@ from pydantic import BaseModel, Field, model_validator
 class Section(BaseModel):
     title: str = Field(min_length=1)
     content: str = Field(min_length=1)
-    examples: List[str] = []
+    examples: List[str] = Field(default_factory=list)
 
 
 class Explanation(BaseModel):
     overview: str = Field(min_length=1)
     sections: List[Section] = Field(min_length=1)
     keyTakeaways: List[str] = Field(min_length=1)
-    commonMistakes: List[str] = []
+    commonMistakes: List[str] = Field(default_factory=list)
 
 
 class ContentBlock(BaseModel):
     kind: Literal["card", "chart", "checklist"]
     title: str = Field(min_length=1)
     body: Optional[str] = None
-    items: List[str] = []
-    labels: List[str] = []
-    values: List[float] = []
+    items: List[str] = Field(default_factory=list)
+    labels: List[str] = Field(default_factory=list)
+    values: List[float] = Field(default_factory=list)
 
 
 class Flashcard(BaseModel):
@@ -54,7 +54,7 @@ class Lesson(BaseModel):
     explanation: Explanation
     flashcards: List[Flashcard] = Field(min_length=1)
     quiz: List[QuizQuestion] = Field(min_length=1)
-    blocks: List[ContentBlock] = []
+    blocks: List[ContentBlock] = Field(default_factory=list)
 
 
 class LearnIn(BaseModel):
@@ -87,7 +87,7 @@ class CompleteIn(BaseModel):
     incorrect: Optional[int] = Field(default=None, ge=0)
     total: Optional[int] = Field(default=None, gt=0)
     cardsReviewed: int = Field(default=0, ge=0)
-    answers: Dict[str, str] = {}
+    answers: Dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def check_total(self):
@@ -160,6 +160,16 @@ class CurriculumTopicIn(BaseModel):
     prerequisites: List[str] = Field(default_factory=list)
     concepts: List[CurriculumConceptIn] = Field(default_factory=list, max_length=50)
     materials: List[CurriculumMaterialIn] = Field(default_factory=list, max_length=30)
+
+
+class CurriculumDraftModuleIn(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=2000)
+    topics: List[CurriculumTopicIn] = Field(min_length=1, max_length=50)
+
+
+class CurriculumDraftApplyIn(BaseModel):
+    modules: List[CurriculumDraftModuleIn] = Field(min_length=1, max_length=30)
 
 
 class ClassroomAssessmentIn(BaseModel):
