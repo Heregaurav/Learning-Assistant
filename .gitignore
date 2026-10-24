@@ -35,6 +35,7 @@ htmlcov/
 # Existing local-only project content
 document.md
 docs/
+interview-preparation/
 
 # Logs and operating-system metadata
 *.log
