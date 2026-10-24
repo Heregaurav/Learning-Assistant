@@ -3,6 +3,9 @@ import type {
   ClassroomAssessment,
   ClassroomCurriculum,
   ClassroomKnowledgeGraph,
+  ClassroomLecture,
+  ClassroomLectureAnalytics,
+  ClassroomMaterial,
   ClassroomProgress,
   ClassroomSubmission,
   ClassroomDraft,
@@ -522,3 +525,136 @@ export const logout = () =>
   req<{ status: string }>("/api/auth/logout", { method: "POST" }).finally(() => {
     clearCsrfToken();
   });
+
+export const getClassroomMaterials = (classroomId: string) =>
+  req<ClassroomMaterial[]>(`/api/classrooms/${encodeURIComponent(classroomId)}/materials`);
+
+export const uploadClassroomMaterial = (
+  classroomId: string,
+  title: string,
+  description: string,
+  file: File,
+): Promise<ClassroomMaterial> => {
+  const form = new FormData();
+  form.append("title", title);
+  form.append("description", description);
+  form.append("file", file, file.name);
+
+  return fetch(apiUrl(`/api/classrooms/${encodeURIComponent(classroomId)}/materials`), {
+    method: "POST",
+    credentials: "include",
+    body: form,
+    headers: {
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+    },
+  }).then(async (r) => {
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      const code = b?.detail?.code ?? `http_${r.status}`;
+      if (r.status === 401 && code === "auth_required") {
+        clearCsrfToken();
+        window.dispatchEvent(new Event("curiosity:session-expired"));
+      }
+      throw new ApiError(code, MSG[code] ?? b?.detail?.message ?? "Upload failed.");
+    }
+    return (await r.json()) as ClassroomMaterial;
+  });
+};
+
+export const updateClassroomMaterial = (
+  classroomId: string,
+  materialId: string,
+  body: { title: string; description?: string },
+) =>
+  req<ClassroomMaterial>(`/api/classrooms/${encodeURIComponent(classroomId)}/materials/${encodeURIComponent(materialId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteClassroomMaterial = (classroomId: string, materialId: string) =>
+  req<{ deleted: boolean; id: string }>(`/api/classrooms/${encodeURIComponent(classroomId)}/materials/${encodeURIComponent(materialId)}`, {
+    method: "DELETE",
+  });
+
+export const getMaterialDownloadUrl = (classroomId: string, materialId: string) =>
+  apiUrl(`/api/classrooms/${encodeURIComponent(classroomId)}/materials/${encodeURIComponent(materialId)}/download`);
+
+export const getClassroomLectures = (classroomId: string) =>
+  req<ClassroomLecture[]>(`/api/classrooms/${encodeURIComponent(classroomId)}/lectures`);
+
+export const createClassroomLecture = (
+  classroomId: string,
+  body: {
+    title: string;
+    description?: string;
+    videoUrl: string;
+    durationSeconds?: number;
+    completionThreshold?: number;
+    position?: number;
+  },
+) =>
+  req<ClassroomLecture>(`/api/classrooms/${encodeURIComponent(classroomId)}/lectures`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateClassroomLecture = (
+  classroomId: string,
+  lectureId: string,
+  body: {
+    title?: string;
+    description?: string;
+    videoUrl?: string;
+    durationSeconds?: number;
+    completionThreshold?: number;
+    position?: number;
+  },
+) =>
+  req<ClassroomLecture>(`/api/classrooms/${encodeURIComponent(classroomId)}/lectures/${encodeURIComponent(lectureId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteClassroomLecture = (classroomId: string, lectureId: string) =>
+  req<{ deleted: boolean; id: string }>(`/api/classrooms/${encodeURIComponent(classroomId)}/lectures/${encodeURIComponent(lectureId)}`, {
+    method: "DELETE",
+  });
+
+export const recordLectureProgress = (
+  classroomId: string,
+  lectureId: string,
+  body: { watchedSeconds: number; lastPositionSeconds: number; totalDurationSeconds: number },
+) =>
+  req<{
+    lectureId: string;
+    studentId: string;
+    watchedSeconds: number;
+    lastPositionSeconds: number;
+    totalDurationSeconds: number;
+    watchPercent: number;
+    completed: boolean;
+    status: string;
+  }>(`/api/classrooms/${encodeURIComponent(classroomId)}/lectures/${encodeURIComponent(lectureId)}/progress`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  }).then((res) => {
+    notifyProgressUpdated();
+    return res;
+  });
+
+export const getClassroomLectureAnalytics = (classroomId: string) =>
+  req<ClassroomLectureAnalytics>(`/api/classrooms/${encodeURIComponent(classroomId)}/lectures-analytics`);
+
+export const validateLectureUrl = (classroomId: string, videoUrl: string) =>
+  req<{
+    platform: string;
+    embedUrl: string;
+    trackingSupported: boolean;
+    videoId: string;
+    valid: boolean;
+    message: string;
+  }>(`/api/classrooms/${encodeURIComponent(classroomId)}/lectures/validate-url`, {
+    method: "POST",
+    body: JSON.stringify({ videoUrl }),
+  });
+

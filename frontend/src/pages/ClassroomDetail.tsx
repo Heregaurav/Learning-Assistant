@@ -18,6 +18,7 @@ import {
 import ClassworkPanel from "./ClassworkPanel";
 import ClassroomInsights from "./ClassroomInsights";
 import ClassroomStream from "./ClassroomStream";
+import ClassroomLectures from "./ClassroomLectures";
 import Learn from "./Learn";
 import { SkeletonClassroom } from "../components/Skeletons";
 import type { ClassroomCurriculum, ClassroomProgress, CurriculumTopic, Role } from "../types";
@@ -83,6 +84,7 @@ export default function ClassroomDetail({ user }: Props) {
         { id: "overview", label: "Overview" },
         { id: "curriculum", label: "Curriculum" },
         { id: "classwork", label: "Classwork" },
+        { id: "lectures", label: "Lectures" },
         { id: "stream", label: "Stream" },
         { id: "people", label: "People" },
         { id: "analytics", label: "Analytics" },
@@ -90,6 +92,7 @@ export default function ClassroomDetail({ user }: Props) {
     : [
         { id: "learn", label: "Learn" },
         { id: "classwork", label: "Classwork" },
+        { id: "lectures", label: "Lectures" },
         { id: "stream", label: "Stream" },
         { id: "people", label: "People" },
         { id: "progress", label: "My progress" },
@@ -845,6 +848,7 @@ export default function ClassroomDetail({ user }: Props) {
         )}
       </section>}
       {activeTab === "classwork" && user && <ClassworkPanel classroomId={classroomId} canEdit={canEdit} />}
+      {activeTab === "lectures" && user && <ClassroomLectures classroomId={classroomId} canEdit={canEdit} user={user} />}
       {activeTab === "stream" && user && <ClassroomStream classroomId={classroomId} canAnnounce={canEdit} />}
       {activeTab === "people" && (
         <section className="mt-6">

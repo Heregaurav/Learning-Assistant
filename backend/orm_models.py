@@ -386,3 +386,67 @@ class AdaptiveTask(Base):
     currentSessionId: Mapped[str | None] = mapped_column(String(255))
     createdAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updatedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ClassroomMaterial(Base):
+    __tablename__ = "classroom_materials"
+    __table_args__ = (
+        Index("ix_materials_class_created", "classroomId", "createdAt"),
+    )
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    classroomId: Mapped[str] = mapped_column(ForeignKey("classrooms.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    filename: Mapped[str] = mapped_column(Text, default="")
+    fileType: Mapped[str] = mapped_column(String(100), default="")
+    fileSize: Mapped[int] = mapped_column(Integer, default=0)
+    storagePath: Mapped[str] = mapped_column(Text, nullable=False)
+    uploadedBy: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    createdAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updatedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ClassroomLecture(Base):
+    __tablename__ = "classroom_lectures"
+    __table_args__ = (
+        Index("ix_lectures_class_position", "classroomId", "position"),
+        Index("ix_lectures_class_created", "classroomId", "createdAt"),
+    )
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    classroomId: Mapped[str] = mapped_column(ForeignKey("classrooms.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    videoUrl: Mapped[str] = mapped_column(Text, nullable=False)
+    platform: Mapped[str] = mapped_column(String(40), default="other")
+    embedUrl: Mapped[str] = mapped_column(Text, default="")
+    durationSeconds: Mapped[int] = mapped_column(Integer, default=0)
+    completionThreshold: Mapped[int] = mapped_column(Integer, default=100)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    trackingSupported: Mapped[bool] = mapped_column(Boolean, default=True)
+    createdBy: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    createdAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updatedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ClassroomLectureProgress(Base):
+    __tablename__ = "classroom_lecture_progress"
+    __table_args__ = (
+        UniqueConstraint("lectureId", "studentId", name="uq_lecture_student_progress"),
+        Index("ix_lecture_progress_class_student", "classroomId", "studentId"),
+        Index("ix_lecture_progress_lecture", "lectureId"),
+    )
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    classroomId: Mapped[str] = mapped_column(ForeignKey("classrooms.id", ondelete="CASCADE"), nullable=False)
+    lectureId: Mapped[str] = mapped_column(ForeignKey("classroom_lectures.id", ondelete="CASCADE"), nullable=False)
+    studentId: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    watchedSeconds: Mapped[float] = mapped_column(Float, default=0.0)
+    lastPositionSeconds: Mapped[float] = mapped_column(Float, default=0.0)
+    totalDurationSeconds: Mapped[float] = mapped_column(Float, default=0.0)
+    watchPercent: Mapped[float] = mapped_column(Float, default=0.0)
+    completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    createdAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updatedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

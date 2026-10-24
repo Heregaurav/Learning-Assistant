@@ -258,3 +258,71 @@ export type ClassroomKnowledgeGraph = {
   nodes: KnowledgeGraphNode[];
   edges: KnowledgeGraphEdge[];
 };
+
+export type ClassroomMaterial = {
+  id: string;
+  classroomId: string;
+  title: string;
+  description: string;
+  filename: string;
+  fileType: string;
+  fileSize: number;
+  uploadedBy?: string;
+  uploadedByName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type ClassroomLecture = {
+  id: string;
+  classroomId: string;
+  title: string;
+  description: string;
+  videoUrl: string;
+  platform: "youtube" | "gdrive" | "direct" | "vimeo" | "other";
+  embedUrl: string;
+  durationSeconds: number;
+  completionThreshold: number;
+  position: number;
+  trackingSupported: boolean;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  progress?: {
+    watchedSeconds: number;
+    lastPositionSeconds: number;
+    watchPercent: number;
+    completed: boolean;
+    status: "not_started" | "in_progress" | "completed";
+  };
+};
+
+export type LectureStudentProgress = {
+  studentId: string;
+  studentName: string;
+  watchPercent: number;
+  watchedSeconds: number;
+  status: "not_started" | "in_progress" | "completed";
+};
+
+export type ClassroomLectureAnalyticsItem = {
+  lectureId: string;
+  title: string;
+  durationSeconds: number;
+  completionThreshold: number;
+  platform: string;
+  trackingSupported: boolean;
+  totalEnrolled: number;
+  completedCount: number;
+  inProgressCount: number;
+  notStartedCount: number;
+  averageWatchPercent: number;
+  students: LectureStudentProgress[];
+};
+
+export type ClassroomLectureAnalytics = {
+  classroomId: string;
+  totalStudents: number;
+  lectures: ClassroomLectureAnalyticsItem[];
+};
+

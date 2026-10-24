@@ -13,7 +13,7 @@ from google.auth.exceptions import GoogleAuthError
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -25,6 +25,10 @@ from models import (
     ClassroomAssessmentIn,
     ClassroomCreateIn,
     ClassroomGradeIn,
+    ClassroomLectureIn,
+    ClassroomLectureProgressIn,
+    ClassroomLectureUpdateIn,
+    ClassroomMaterialUpdateIn,
     ClassroomPostIn,
     ClassroomReplyIn,
     ClassroomSubmissionIn,
@@ -41,6 +45,7 @@ from models import (
     RefineIn,
     UserRoleUpdateIn,
 )
+from video_helper import parse_video_url
 from llm import generate_curriculum, generate_lesson, generate_retest_quiz, refine_lesson, LLMError
 from document_processor.service import DocumentProcessingService
 from document_processor.parser import EmptyDocumentError, UnsupportedDocumentError
@@ -2482,3 +2487,495 @@ def grade_classroom_submission_route(classroom_id: str, assessment_id: str, subm
 @app.post("/api/classrooms/{classroom_id}/classwork/{assessment_id}/submissions/{submission_id}/evaluate")
 def evaluate_classroom_submission_route(classroom_id: str, assessment_id: str, submission_id: str, user: dict = Depends(current_user)):
     return evaluate_classroom_submission(classroom_id, assessment_id, submission_id, user)
+
+
+# =============================================================================
+# Classroom Study Materials
+# =============================================================================
+
+MATERIALS_STORAGE_DIR = os.path.join(os.path.dirname(__file__), "uploads", "materials")
+os.makedirs(MATERIALS_STORAGE_DIR, exist_ok=True)
+ALLOWED_MATERIAL_EXTENSIONS = {
+    ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".png", ".jpg", ".jpeg",
+    ".gif", ".webp", ".txt", ".md", ".csv", ".xlsx", ".xls"
+}
+MAX_MATERIAL_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB
+
+
+def upload_classroom_material(classroom_id: str, title: str, description: str, file: UploadFile, user: dict):
+    require_classroom_editor(classroom_id, user)
+    if not file.filename:
+        raise err(400, "invalid_file", "No file provided.")
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_MATERIAL_EXTENSIONS:
+        raise err(400, "unsupported_file_type", f"Unsupported file type '{ext}'. Supported formats: PDF, Word (.doc/.docx), PowerPoint (.ppt/.pptx), Images, and Text files.")
+    raw = file.file.read()
+    if len(raw) == 0:
+        raise err(400, "empty_file", "The uploaded file is empty.")
+    if len(raw) > MAX_MATERIAL_SIZE_BYTES:
+        raise err(400, "file_too_large", "File size exceeds the maximum limit of 25 MB.")
+
+    material_id = f"mat_{uuid.uuid4().hex[:12]}"
+    clean_filename = re.sub(r"[^a-zA-Z0-9_.-]", "_", file.filename)
+    dest_dir = os.path.join(MATERIALS_STORAGE_DIR, classroom_id)
+    os.makedirs(dest_dir, exist_ok=True)
+    storage_path = os.path.join(dest_dir, f"{material_id}_{clean_filename}")
+    with open(storage_path, "wb") as f:
+        f.write(raw)
+
+    material = {
+        "_id": material_id,
+        "classroomId": classroom_id,
+        "title": title.strip() or file.filename,
+        "description": description.strip(),
+        "filename": file.filename,
+        "fileType": file.content_type or "application/octet-stream",
+        "fileSize": len(raw),
+        "storagePath": storage_path,
+        "uploadedBy": user["id"],
+        "createdAt": now(),
+        "updatedAt": now(),
+    }
+    db.classroom_materials.insert_one(material)
+    res = {k: v for k, v in material.items() if k not in ("_id", "storagePath")}
+    res["id"] = material_id
+    res["uploadedByName"] = user.get("name") or "Teacher"
+    return res
+
+
+def list_classroom_materials(classroom_id: str, user: dict):
+    get_classroom(classroom_id, user)
+    materials = list(db.classroom_materials.find({"classroomId": classroom_id}))
+    materials.sort(key=lambda m: m.get("createdAt", now()), reverse=True)
+    uploader_ids = list({m.get("uploadedBy") for m in materials if m.get("uploadedBy")})
+    uploaders = {u["_id"]: u.get("name") for u in db.users.find({"_id": {"$in": uploader_ids}})} if uploader_ids else {}
+    result = []
+    for m in materials:
+        item = {k: v for k, v in m.items() if k not in ("_id", "storagePath")}
+        item["id"] = m["_id"]
+        item["uploadedByName"] = uploaders.get(m.get("uploadedBy")) or "Teacher"
+        result.append(item)
+    return result
+
+
+def download_classroom_material(classroom_id: str, material_id: str, user: dict):
+    get_classroom(classroom_id, user)
+    material = db.classroom_materials.find_one({"_id": material_id, "classroomId": classroom_id})
+    if not material:
+        raise err(404, "not_found", "Study material not found.")
+    storage_path = material.get("storagePath")
+    if not storage_path or not os.path.exists(storage_path):
+        raise err(404, "file_missing", "The requested file is no longer available on disk.")
+    return FileResponse(
+        path=storage_path,
+        filename=material.get("filename", "download"),
+        media_type=material.get("fileType", "application/octet-stream"),
+    )
+
+
+def update_classroom_material(classroom_id: str, material_id: str, payload: ClassroomMaterialUpdateIn, user: dict):
+    require_classroom_editor(classroom_id, user)
+    material = db.classroom_materials.find_one({"_id": material_id, "classroomId": classroom_id})
+    if not material:
+        raise err(404, "not_found", "Study material not found.")
+    updates = {"title": payload.title.strip(), "description": (payload.description or "").strip(), "updatedAt": now()}
+    db.classroom_materials.update_one({"_id": material_id}, {"$set": updates})
+    updated = db.classroom_materials.find_one({"_id": material_id}) or material
+    res = {k: v for k, v in updated.items() if k not in ("_id", "storagePath")}
+    res["id"] = material_id
+    uploader = db.users.find_one({"_id": updated.get("uploadedBy")}) or {}
+    res["uploadedByName"] = uploader.get("name") or "Teacher"
+    return res
+
+
+def delete_classroom_material(classroom_id: str, material_id: str, user: dict):
+    require_classroom_editor(classroom_id, user)
+    material = db.classroom_materials.find_one({"_id": material_id, "classroomId": classroom_id})
+    if not material:
+        raise err(404, "not_found", "Study material not found.")
+    storage_path = material.get("storagePath")
+    if storage_path and os.path.exists(storage_path):
+        try:
+            os.remove(storage_path)
+        except OSError:
+            pass
+    db.classroom_materials.delete_one({"_id": material_id})
+    return {"deleted": True, "id": material_id}
+
+
+# =============================================================================
+# Classroom Lecture Videos
+# =============================================================================
+
+def create_classroom_lecture(classroom_id: str, payload: ClassroomLectureIn, user: dict):
+    require_classroom_editor(classroom_id, user)
+    info = parse_video_url(payload.videoUrl)
+    if not info["valid"]:
+        raise err(400, "invalid_video_url", info["message"])
+
+    lecture_id = f"lec_{uuid.uuid4().hex[:12]}"
+    if payload.position is None or payload.position == 0:
+        existing = list(db.classroom_lectures.find({"classroomId": classroom_id}))
+        pos = max([lec.get("position", 0) for lec in existing], default=0) + 1
+    else:
+        pos = payload.position
+
+    lecture = {
+        "_id": lecture_id,
+        "classroomId": classroom_id,
+        "title": payload.title.strip(),
+        "description": (payload.description or "").strip(),
+        "videoUrl": payload.videoUrl.strip(),
+        "platform": info["platform"],
+        "embedUrl": info["embedUrl"],
+        "durationSeconds": payload.durationSeconds or 0,
+        "completionThreshold": max(1, min(100, payload.completionThreshold)),
+        "position": pos,
+        "trackingSupported": info["trackingSupported"],
+        "createdBy": user["id"],
+        "createdAt": now(),
+        "updatedAt": now(),
+    }
+    db.classroom_lectures.insert_one(lecture)
+    res = {k: v for k, v in lecture.items() if k != "_id"}
+    res["id"] = lecture_id
+    return res
+
+
+def list_classroom_lectures(classroom_id: str, user: dict):
+    classroom = get_classroom(classroom_id, user)
+    lectures = list(db.classroom_lectures.find({"classroomId": classroom_id}))
+    lectures.sort(key=lambda l: (l.get("position", 0), l.get("createdAt", now())))
+
+    progress_by_lecture = {}
+    if not _classroom_editor(classroom, user):
+        rows = list(db.classroom_lecture_progress.find({"classroomId": classroom_id, "studentId": user["id"]}))
+        progress_by_lecture = {r["lectureId"]: r for r in rows}
+
+    result = []
+    for l in lectures:
+        item = {k: v for k, v in l.items() if k != "_id"}
+        item["id"] = l["_id"]
+        if not _classroom_editor(classroom, user):
+            p = progress_by_lecture.get(l["_id"])
+            if p:
+                item["progress"] = {
+                    "watchedSeconds": p.get("watchedSeconds", 0.0),
+                    "lastPositionSeconds": p.get("lastPositionSeconds", 0.0),
+                    "watchPercent": p.get("watchPercent", 0.0),
+                    "completed": p.get("completed", False),
+                    "status": "completed" if p.get("completed") else ("in_progress" if p.get("watchedSeconds", 0) > 0 else "not_started"),
+                }
+            else:
+                item["progress"] = {
+                    "watchedSeconds": 0.0,
+                    "lastPositionSeconds": 0.0,
+                    "watchPercent": 0.0,
+                    "completed": False,
+                    "status": "not_started",
+                }
+        result.append(item)
+    return result
+
+
+def update_classroom_lecture(classroom_id: str, lecture_id: str, payload: ClassroomLectureUpdateIn, user: dict):
+    require_classroom_editor(classroom_id, user)
+    lecture = db.classroom_lectures.find_one({"_id": lecture_id, "classroomId": classroom_id})
+    if not lecture:
+        raise err(404, "not_found", "Lecture not found.")
+
+    updates = {"updatedAt": now()}
+    if payload.title is not None:
+        updates["title"] = payload.title.strip()
+    if payload.description is not None:
+        updates["description"] = payload.description.strip()
+    if payload.durationSeconds is not None:
+        updates["durationSeconds"] = payload.durationSeconds
+    if payload.position is not None:
+        updates["position"] = payload.position
+    if payload.completionThreshold is not None:
+        threshold = max(1, min(100, payload.completionThreshold))
+        updates["completionThreshold"] = threshold
+        all_progress = list(db.classroom_lecture_progress.find({"lectureId": lecture_id}))
+        for prg in all_progress:
+            is_comp = prg.get("watchPercent", 0.0) >= threshold
+            if is_comp != prg.get("completed", False):
+                db.classroom_lecture_progress.update_one(
+                    {"_id": prg["_id"]},
+                    {"$set": {"completed": is_comp, "completedAt": now() if is_comp else None, "updatedAt": now()}},
+                )
+    if payload.videoUrl is not None and payload.videoUrl.strip() != lecture.get("videoUrl"):
+        info = parse_video_url(payload.videoUrl)
+        if not info["valid"]:
+            raise err(400, "invalid_video_url", info["message"])
+        updates["videoUrl"] = payload.videoUrl.strip()
+        updates["platform"] = info["platform"]
+        updates["embedUrl"] = info["embedUrl"]
+        updates["trackingSupported"] = info["trackingSupported"]
+
+    db.classroom_lectures.update_one({"_id": lecture_id}, {"$set": updates})
+    updated = db.classroom_lectures.find_one({"_id": lecture_id}) or lecture
+    res = {k: v for k, v in updated.items() if k != "_id"}
+    res["id"] = lecture_id
+    return res
+
+
+def delete_classroom_lecture(classroom_id: str, lecture_id: str, user: dict):
+    require_classroom_editor(classroom_id, user)
+    lecture = db.classroom_lectures.find_one({"_id": lecture_id, "classroomId": classroom_id})
+    if not lecture:
+        raise err(404, "not_found", "Lecture not found.")
+    db.classroom_lectures.delete_one({"_id": lecture_id})
+    db.classroom_lecture_progress.delete_many({"lectureId": lecture_id})
+    return {"deleted": True, "id": lecture_id}
+
+
+def record_lecture_progress(classroom_id: str, lecture_id: str, payload: ClassroomLectureProgressIn, user: dict):
+    get_classroom(classroom_id, user)
+    lecture = db.classroom_lectures.find_one({"_id": lecture_id, "classroomId": classroom_id})
+    if not lecture:
+        raise err(404, "not_found", "Lecture not found.")
+
+    if not lecture.get("trackingSupported", True):
+        raise err(400, "tracking_unsupported", "Automatic playback tracking is not supported for this video source.")
+
+    total_dur = payload.totalDurationSeconds
+    if total_dur <= 0:
+        total_dur = float(lecture.get("durationSeconds", 0))
+    if total_dur <= 0:
+        raise err(400, "invalid_duration", "Total video duration must be greater than zero to record watch progress.")
+
+    watched = min(payload.watchedSeconds, total_dur)
+    last_pos = min(payload.lastPositionSeconds, total_dur)
+    watch_pct = round(min(100.0, (watched / total_dur) * 100.0), 1)
+
+    threshold = lecture.get("completionThreshold", 100)
+    is_completed = watch_pct >= threshold
+
+    existing = db.classroom_lecture_progress.find_one({"lectureId": lecture_id, "studentId": user["id"]})
+    if existing:
+        highest_watched = max(watched, existing.get("watchedSeconds", 0.0))
+        highest_pct = round(min(100.0, (highest_watched / total_dur) * 100.0), 1)
+        was_completed = existing.get("completed", False)
+        comp = was_completed or (highest_pct >= threshold)
+
+        updates = {
+            "watchedSeconds": highest_watched,
+            "lastPositionSeconds": last_pos,
+            "totalDurationSeconds": total_dur,
+            "watchPercent": highest_pct,
+            "completed": comp,
+            "completedAt": (existing.get("completedAt") or now()) if comp else None,
+            "updatedAt": now(),
+        }
+        db.classroom_lecture_progress.update_one({"_id": existing["_id"]}, {"$set": updates})
+        return {
+            "lectureId": lecture_id,
+            "studentId": user["id"],
+            "watchedSeconds": highest_watched,
+            "lastPositionSeconds": last_pos,
+            "totalDurationSeconds": total_dur,
+            "watchPercent": highest_pct,
+            "completed": comp,
+            "status": "completed" if comp else ("in_progress" if highest_watched > 0 else "not_started"),
+        }
+    else:
+        progress_id = f"prog_{uuid.uuid4().hex[:12]}"
+        doc = {
+            "_id": progress_id,
+            "classroomId": classroom_id,
+            "lectureId": lecture_id,
+            "studentId": user["id"],
+            "watchedSeconds": watched,
+            "lastPositionSeconds": last_pos,
+            "totalDurationSeconds": total_dur,
+            "watchPercent": watch_pct,
+            "completed": is_completed,
+            "completedAt": now() if is_completed else None,
+            "createdAt": now(),
+            "updatedAt": now(),
+        }
+        db.classroom_lecture_progress.insert_one(doc)
+        return {
+            "lectureId": lecture_id,
+            "studentId": user["id"],
+            "watchedSeconds": watched,
+            "lastPositionSeconds": last_pos,
+            "totalDurationSeconds": total_dur,
+            "watchPercent": watch_pct,
+            "completed": is_completed,
+            "status": "completed" if is_completed else ("in_progress" if watched > 0 else "not_started"),
+        }
+
+
+def get_classroom_lecture_analytics(classroom_id: str, user: dict):
+    classroom = require_classroom_editor(classroom_id, user)
+    lectures = list(db.classroom_lectures.find({"classroomId": classroom_id}))
+    lectures.sort(key=lambda l: (l.get("position", 0), l.get("createdAt", now())))
+
+    students = [m for m in classroom.get("members", []) if m.get("role") == "STUDENT"]
+    total_students = len(students)
+
+    lecture_analytics = []
+    for l in lectures:
+        threshold = l.get("completionThreshold", 100)
+        progress_rows = list(db.classroom_lecture_progress.find({"lectureId": l["_id"]}))
+        progress_by_student = {p["studentId"]: p for p in progress_rows}
+
+        student_details = []
+        completed_count = 0
+        in_progress_count = 0
+        not_started_count = 0
+        total_watch_percent = 0.0
+
+        for s in students:
+            sid = s["userId"]
+            sname = s.get("name") or "Student"
+            p = progress_by_student.get(sid)
+            if p:
+                pct = p.get("watchPercent", 0.0)
+                is_comp = p.get("completed", False) or (pct >= threshold)
+                if is_comp:
+                    status = "completed"
+                    completed_count += 1
+                elif pct > 0:
+                    status = "in_progress"
+                    in_progress_count += 1
+                else:
+                    status = "not_started"
+                    not_started_count += 1
+                total_watch_percent += pct
+                student_details.append({
+                    "studentId": sid,
+                    "studentName": sname,
+                    "watchPercent": pct,
+                    "watchedSeconds": p.get("watchedSeconds", 0.0),
+                    "status": status,
+                })
+            else:
+                not_started_count += 1
+                student_details.append({
+                    "studentId": sid,
+                    "studentName": sname,
+                    "watchPercent": 0.0,
+                    "watchedSeconds": 0.0,
+                    "status": "not_started",
+                })
+
+        avg_watch = round(total_watch_percent / total_students, 1) if total_students > 0 else 0.0
+        lecture_analytics.append({
+            "lectureId": l["_id"],
+            "title": l.get("title", ""),
+            "durationSeconds": l.get("durationSeconds", 0),
+            "completionThreshold": threshold,
+            "platform": l.get("platform", "other"),
+            "trackingSupported": l.get("trackingSupported", True),
+            "totalEnrolled": total_students,
+            "completedCount": completed_count,
+            "inProgressCount": in_progress_count,
+            "notStartedCount": not_started_count,
+            "averageWatchPercent": avg_watch,
+            "students": student_details,
+        })
+
+    return {
+        "classroomId": classroom_id,
+        "totalStudents": total_students,
+        "lectures": lecture_analytics,
+    }
+
+
+# =============================================================================
+# FastAPI Route Handlers for Materials & Lectures
+# =============================================================================
+
+@app.post("/api/classrooms/{classroom_id}/materials")
+def upload_classroom_material_route(
+    classroom_id: str,
+    title: str = Form(""),
+    description: str = Form(""),
+    file: UploadFile = File(...),
+    user: dict = Depends(current_user),
+):
+    return upload_classroom_material(classroom_id, title, description, file, user)
+
+
+@app.get("/api/classrooms/{classroom_id}/materials")
+def list_classroom_materials_route(classroom_id: str, user: dict = Depends(current_user)):
+    return list_classroom_materials(classroom_id, user)
+
+
+@app.get("/api/classrooms/{classroom_id}/materials/{material_id}/download")
+def download_classroom_material_route(classroom_id: str, material_id: str, user: dict = Depends(current_user)):
+    return download_classroom_material(classroom_id, material_id, user)
+
+
+@app.patch("/api/classrooms/{classroom_id}/materials/{material_id}")
+def update_classroom_material_route(
+    classroom_id: str,
+    material_id: str,
+    body: ClassroomMaterialUpdateIn,
+    user: dict = Depends(current_user),
+):
+    return update_classroom_material(classroom_id, material_id, body, user)
+
+
+@app.delete("/api/classrooms/{classroom_id}/materials/{material_id}")
+def delete_classroom_material_route(classroom_id: str, material_id: str, user: dict = Depends(current_user)):
+    return delete_classroom_material(classroom_id, material_id, user)
+
+
+@app.post("/api/classrooms/{classroom_id}/lectures")
+def create_classroom_lecture_route(
+    classroom_id: str,
+    body: ClassroomLectureIn,
+    user: dict = Depends(current_user),
+):
+    return create_classroom_lecture(classroom_id, body, user)
+
+
+@app.get("/api/classrooms/{classroom_id}/lectures")
+def list_classroom_lectures_route(classroom_id: str, user: dict = Depends(current_user)):
+    return list_classroom_lectures(classroom_id, user)
+
+
+@app.patch("/api/classrooms/{classroom_id}/lectures/{lecture_id}")
+def update_classroom_lecture_route(
+    classroom_id: str,
+    lecture_id: str,
+    body: ClassroomLectureUpdateIn,
+    user: dict = Depends(current_user),
+):
+    return update_classroom_lecture(classroom_id, lecture_id, body, user)
+
+
+@app.delete("/api/classrooms/{classroom_id}/lectures/{lecture_id}")
+def delete_classroom_lecture_route(classroom_id: str, lecture_id: str, user: dict = Depends(current_user)):
+    return delete_classroom_lecture(classroom_id, lecture_id, user)
+
+
+@app.post("/api/classrooms/{classroom_id}/lectures/{lecture_id}/progress")
+def record_lecture_progress_route(
+    classroom_id: str,
+    lecture_id: str,
+    body: ClassroomLectureProgressIn,
+    user: dict = Depends(current_user),
+):
+    return record_lecture_progress(classroom_id, lecture_id, body, user)
+
+
+@app.get("/api/classrooms/{classroom_id}/lectures-analytics")
+def get_classroom_lecture_analytics_route(classroom_id: str, user: dict = Depends(current_user)):
+    return get_classroom_lecture_analytics(classroom_id, user)
+
+
+@app.post("/api/classrooms/{classroom_id}/lectures/validate-url")
+def validate_lecture_url_route(
+    classroom_id: str,
+    body: dict,
+    user: dict = Depends(current_user),
+):
+    require_classroom_editor(classroom_id, user)
+    url = body.get("videoUrl", "")
+    return parse_video_url(url)
+

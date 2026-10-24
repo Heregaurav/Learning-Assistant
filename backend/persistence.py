@@ -15,6 +15,9 @@ from orm_models import (
     AuthSession,
     Classroom,
     ClassroomAssessment,
+    ClassroomLecture,
+    ClassroomLectureProgress,
+    ClassroomMaterial,
     ClassroomMember,
     ClassroomPost,
     ClassroomReply,
@@ -48,6 +51,9 @@ COLLECTION_MODELS = {
     "learning_events": LearningEvent,
     "learning_paths": LearningPath,
     "adaptive_tasks": AdaptiveTask,
+    "classroom_materials": ClassroomMaterial,
+    "classroom_lectures": ClassroomLecture,
+    "classroom_lecture_progress": ClassroomLectureProgress,
 }
 
 JSON_FIELDS = {
