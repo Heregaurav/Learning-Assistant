@@ -1668,3 +1668,96 @@ def test_student_cannot_view_other_classroom_details():
         raise AssertionError("Expected forbidden error")
     except main.HTTPException as exc:
         assert exc.status_code == 403
+
+
+def test_classroom_people_management_and_isolation():
+    reset_db()
+    teacher = _user("faculty-1")
+    student_1 = _user("student-1")
+    student_2 = _user("student-2")
+
+    # Teacher creates Classroom 1 and Classroom 2
+    c1 = main.create_classroom(
+        {"name": "Classroom 1", "subject": "Math", "section": "A", "semester": "2026", "description": ""},
+        teacher,
+    )
+    c2 = main.create_classroom(
+        {"name": "Classroom 2", "subject": "Science", "section": "B", "semester": "2026", "description": ""},
+        teacher,
+    )
+
+    # 1. Teacher views members
+    members_c1 = main.get_classroom_members(c1["id"], teacher)
+    assert members_c1["classroomId"] == c1["id"]
+    assert len(members_c1["members"]) == 1
+    assert members_c1["members"][0]["userId"] == teacher["id"]
+    assert members_c1["members"][0]["role"] == "OWNER"
+
+    # 2. Teacher adds student_1 by email to Classroom 1 as STUDENT
+    added_student = main.add_classroom_member(
+        c1["id"],
+        {"email": student_1["email"], "role": "STUDENT"},
+        teacher,
+    )
+    c1_members = main.get_classroom_members(c1["id"], teacher)["members"]
+    assert len(c1_members) == 2
+    assert any(m["userId"] == student_1["id"] and m["role"] == "STUDENT" for m in c1_members)
+
+    # 3. Student can view members but CANNOT add members (403)
+    c1_student_view = main.get_classroom_members(c1["id"], student_1)
+    assert len(c1_student_view["members"]) == 2
+    try:
+        main.add_classroom_member(c1["id"], {"email": student_2["email"], "role": "STUDENT"}, student_1)
+        raise AssertionError("Expected 403 when student adds a member")
+    except main.HTTPException as exc:
+        assert exc.status_code == 403
+
+    # 4. Teacher promotes student_1 to ASSISTANT in Classroom 1
+    updated_c1 = main.update_classroom_member_role(
+        c1["id"],
+        student_1["id"],
+        {"role": "ASSISTANT"},
+        teacher,
+    )
+    c1_members_after_promo = main.get_classroom_members(c1["id"], teacher)["members"]
+    s1_member = next(m for m in c1_members_after_promo if m["userId"] == student_1["id"])
+    assert s1_member["role"] == "ASSISTANT"
+
+    # Assistant teacher CANNOT change roles (403)
+    try:
+        main.update_classroom_member_role(c1["id"], student_1["id"], {"role": "OWNER"}, student_1)
+        raise AssertionError("Expected 403 when assistant promotes self")
+    except main.HTTPException as exc:
+        assert exc.status_code == 403
+
+    # Teacher cannot demote sole owner without another owner (400)
+    try:
+        main.update_classroom_member_role(c1["id"], teacher["id"], {"role": "STUDENT"}, teacher)
+        raise AssertionError("Expected 400 when demoting sole owner")
+    except main.HTTPException as exc:
+        assert exc.status_code == 400
+
+    # 5. Add student_2 to Classroom 1 and Classroom 2
+    main.add_classroom_member(c1["id"], {"email": student_2["email"], "role": "STUDENT"}, teacher)
+    main.add_classroom_member(c2["id"], {"email": student_2["email"], "role": "STUDENT"}, teacher)
+
+    # 6. Removing student_2 from Classroom 1 does NOT remove them from Classroom 2
+    main.remove_classroom_member(c1["id"], student_2["id"], teacher)
+
+    c1_final = main.get_classroom_members(c1["id"], teacher)["members"]
+    c2_final = main.get_classroom_members(c2["id"], teacher)["members"]
+    assert not any(m["userId"] == student_2["id"] for m in c1_final)
+    assert any(m["userId"] == student_2["id"] for m in c2_final)
+
+    # And student_2 global account in users table is completely untouched!
+    user_record = main.db.users.find_one({"_id": student_2["id"]})
+    assert user_record is not None
+    assert user_record["email"] == student_2["email"]
+
+    # 7. Owner cannot be removed from their own classroom (400)
+    try:
+        main.remove_classroom_member(c1["id"], teacher["id"], teacher)
+        raise AssertionError("Expected 400 when removing owner")
+    except main.HTTPException as exc:
+        assert exc.status_code == 400
+

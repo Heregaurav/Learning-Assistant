@@ -1,8 +1,14 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock3 } from "lucide-react";
-import { CLASSROOM_PROGRESS_UPDATED, getClassroomAnalytics, getClassroomGraph, getClassroomProgress } from "../lib/api";
-import type { KnowledgeGraphNode, Role } from "../types";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, ChevronUp, Clock3, Film } from "lucide-react";
+import {
+  CLASSROOM_PROGRESS_UPDATED,
+  getClassroomAnalytics,
+  getClassroomGraph,
+  getClassroomLectureAnalytics,
+  getClassroomProgress,
+} from "../lib/api";
+import type { ClassroomLectureAnalytics, KnowledgeGraphNode, Role } from "../types";
 import { SkeletonCard, SkeletonGraph, SkeletonList } from "../components/Skeletons";
 
 const ClassroomKnowledgeGraph = lazy(() => import("../components/ClassroomKnowledgeGraph"));
@@ -20,6 +26,8 @@ type Graph = Awaited<ReturnType<typeof getClassroomGraph>>;
 export default function ClassroomInsights({ classroomId, canEdit, user }: Props) {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [lectureAnalytics, setLectureAnalytics] = useState<ClassroomLectureAnalytics | null>(null);
+  const [expandedLectureIds, setExpandedLectureIds] = useState<Record<string, boolean>>({});
   const [graph, setGraph] = useState<Graph | null>(null);
   const [graphLoading, setGraphLoading] = useState(true);
   const [graphStudentId, setGraphStudentId] = useState("");
@@ -37,9 +45,13 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
     const load = async () => {
       try {
         if (canEdit) {
-          const result = await getClassroomAnalytics(classroomId);
+          const [result, lecAnalytics] = await Promise.all([
+            getClassroomAnalytics(classroomId),
+            getClassroomLectureAnalytics(classroomId).catch(() => null),
+          ]);
           if (cancelled) return;
           setAnalytics(result);
+          setLectureAnalytics(lecAnalytics);
           setGraphStudentId((current) => current || result.students[0]?.studentId || "");
         } else {
           const result = await getClassroomProgress(classroomId);
@@ -150,6 +162,164 @@ export default function ClassroomInsights({ classroomId, canEdit, user }: Props)
               )}
             </div>
           </div>
+
+          {/* Lecture Videos Progress Analytics Section */}
+          <section className="mt-8 border-t border-primary/20 pt-6" aria-labelledby="lecture-analytics-heading">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-primary/70">Video Engagement & Completion</p>
+                <h3 id="lecture-analytics-heading" className="mt-1 text-lg font-semibold text-[#f2efe8]">
+                  Lecture Progress
+                </h3>
+              </div>
+              <span className="text-xs text-primary/65">
+                {lectureAnalytics?.lectures.length || 0} lectures recorded
+              </span>
+            </div>
+
+            {!lectureAnalytics || lectureAnalytics.lectures.length === 0 ? (
+              <p className="mt-3 py-5 text-sm text-primary/70 border-y border-primary/15">
+                No lectures have been shared in this classroom yet. Add lectures under the Lectures tab to view student watch analytics.
+              </p>
+            ) : (
+              <div className="mt-4 grid gap-4">
+                {lectureAnalytics.lectures.map((lec) => {
+                  const isExpanded = Boolean(expandedLectureIds[lec.lectureId]);
+                  const incompleteCount = lec.inProgressCount + lec.notStartedCount;
+
+                  return (
+                    <article
+                      key={lec.lectureId}
+                      className="rounded-lg border border-primary/25 bg-black/40 p-4 transition-colors"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <Film size={16} className="text-primary shrink-0" />
+                            <h4 className="font-semibold text-base text-[#f2efe8]">{lec.title}</h4>
+                            <span className="rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+                              Target: {lec.completionThreshold}%
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-primary/75">
+                            <span>Platform: {lec.platform}</span>
+                            <span>·</span>
+                            <span>Avg. Watch: {lec.averageWatchPercent}%</span>
+                            {!lec.trackingSupported && (
+                              <>
+                                <span>·</span>
+                                <span className="text-amber-300/80">Automatic tracking unavailable for this source</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedLectureIds((prev) => ({
+                              ...prev,
+                              [lec.lectureId]: !prev[lec.lectureId],
+                            }))
+                          }
+                          className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary hover:bg-primary hover:text-black transition-colors"
+                          aria-expanded={isExpanded}
+                        >
+                          {isExpanded ? "Hide Student Details" : "View Student Progress"}
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </button>
+                      </div>
+
+                      {/* Metric summary badges */}
+                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 border-t border-primary/15 pt-3">
+                        <div className="border-l-2 border-primary/30 pl-2">
+                          <span className="block text-[10px] uppercase text-primary/60">Enrolled</span>
+                          <span className="text-sm font-semibold">{lec.totalEnrolled}</span>
+                        </div>
+                        <div className="border-l-2 border-emerald-400/40 pl-2">
+                          <span className="block text-[10px] uppercase text-emerald-300/80">Completed</span>
+                          <span className="text-sm font-semibold text-emerald-300">{lec.completedCount}</span>
+                        </div>
+                        <div className="border-l-2 border-amber-400/40 pl-2">
+                          <span className="block text-[10px] uppercase text-amber-300/80">In Progress</span>
+                          <span className="text-sm font-semibold text-amber-300">{lec.inProgressCount}</span>
+                        </div>
+                        <div className="border-l-2 border-white/20 pl-2">
+                          <span className="block text-[10px] uppercase text-[#c9c4b5]">Not Started</span>
+                          <span className="text-sm font-semibold text-[#c9c4b5]">{lec.notStartedCount}</span>
+                        </div>
+                      </div>
+
+                      {/* Expandable Individual Student Progress Table */}
+                      {isExpanded && (
+                        <div className="mt-4 border-t border-primary/20 pt-3">
+                          <h5 className="text-xs uppercase tracking-wider text-primary/75 mb-2 font-medium">
+                            Enrolled Student Progress ({lec.students.length})
+                          </h5>
+                          {lec.students.length === 0 ? (
+                            <p className="text-xs text-primary/60">No enrolled students.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs border border-primary/15">
+                                <thead>
+                                  <tr className="border-b border-primary/20 bg-white/5 text-primary/80">
+                                    <th className="p-2.5 font-medium">Student</th>
+                                    <th className="p-2.5 font-medium">Watch Progress</th>
+                                    <th className="p-2.5 font-medium">Status (at {lec.completionThreshold}% threshold)</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-primary/10">
+                                  {lec.students.map((st) => (
+                                    <tr key={st.studentId} className="hover:bg-white/5">
+                                      <td className="p-2.5 text-[#f2efe8] font-medium">{st.studentName}</td>
+                                      <td className="p-2.5">
+                                        <div className="flex items-center gap-2 min-w-[120px]">
+                                          <div className="h-1.5 flex-1 rounded bg-white/10 overflow-hidden">
+                                            <div
+                                              className={`h-full ${
+                                                st.status === "completed"
+                                                  ? "bg-emerald-400"
+                                                  : st.watchPercent > 0
+                                                  ? "bg-amber-400"
+                                                  : "bg-transparent"
+                                              }`}
+                                              style={{ width: `${Math.round(st.watchPercent)}%` }}
+                                            />
+                                          </div>
+                                          <span className="font-mono text-[11px] text-[#c9c4b5] min-w-8 text-right">
+                                            {Math.round(st.watchPercent)}%
+                                          </span>
+                                        </div>
+                                      </td>
+                                      <td className="p-2.5">
+                                        {st.status === "completed" ? (
+                                          <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 border border-emerald-500/30">
+                                            <CheckCircle2 size={11} /> Complete
+                                          </span>
+                                        ) : st.status === "in_progress" ? (
+                                          <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300 border border-amber-500/30">
+                                            <Clock3 size={11} /> In progress
+                                          </span>
+                                        ) : (
+                                          <span className="rounded bg-white/5 px-2 py-0.5 text-[10px] text-[#c9c4b5] border border-white/10">
+                                            Not started
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </>
       ) : null) : progress && progressView === "modules" && <>
         <div className="mt-5 grid gap-5 border-y border-primary/20 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">

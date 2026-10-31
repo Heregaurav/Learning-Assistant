@@ -1,0 +1,527 @@
+Antigravity Task: Add Lecture Videos and Study Materials to the Existing Learning Assistant Project
+1. Project Context
+GitHub Repository: [https://github.com/Heregaurav/Learning-Assistant](https://github.com/Heregaurav/Learning-Assistant)
+I am working on this project with my team. My task is to add a new feature called Lecture Videos and Study Materials to the existing classroom system.
+Before making any changes, carefully inspect the existing codebase, understand the current architecture, and identify how classrooms, teachers, students, authentication, enrollment, navigation, and analytics currently work.
+CRITICAL REQUIREMENT: DO NOT CHANGE ANYTHING OUTSIDE THE SCOPE OF THIS TASK.
+Everything that already exists must continue working exactly as it does now. Do not redesign the UI, modify existing layouts unnecessarily, rename existing components, change routes, replace technologies, refactor unrelated code, or remove any existing features.
+Only implement the new functionality described below. Reuse the existing components, design system, authentication, database, APIs, and project conventions wherever possible.
+2. Feature Overview
+Add a new Lectures option to both the teacher's and student's classroom interfaces.
+Existing Teacher Classroom Navigation
+The teacher currently has the following options:
+Learn
+Overview
+Curriculum
+Classwork
+Stream
+People
+Analytics
+Update it to include:
+Learn
+Overview
+Curriculum
+Classwork
+Lectures — NEW
+Stream
+People
+Analytics
+Existing Student Classroom Navigation
+The student currently has the following options:
+Learn
+Classwork
+Stream
+People
+My Progress
+Update it to include:
+Learn
+Classwork
+Lectures — NEW
+Stream
+People
+My Progress
+The new option must follow the existing navigation style, spacing, icons, responsive behavior, and routing conventions. Do not alter the appearance or behavior of the other navigation items.
+3. Teacher Interface: Managing Lectures and Study Materials
+When a teacher opens a classroom and selects the new Lectures option, the teacher should see a dedicated page for managing learning resources belonging to that specific classroom.
+The page should provide two main sections:
+A. Study Materials and Notes
+Teachers must be able to share study materials with students enrolled in their classroom.
+Support uploading common file types, including:
+PDF files
+Word documents (.doc, .docx)
+PowerPoint presentations (.ppt, .pptx)
+Images (.png, .jpg, .jpeg, etc.)
+Text files and other formats supported by the existing application
+Each uploaded resource should support relevant metadata, such as:
+Material title
+Optional description
+File name and file type
+Upload date
+Teacher who uploaded it
+Teachers should be able to:
+Upload new study materials.
+View all materials shared in their classroom.
+Download or open previously uploaded materials.
+Delete materials they are authorized to manage.
+Add or update a title and description where appropriate.
+Students enrolled in that specific classroom should be able to see and download the shared materials.
+Important requirements:
+Resources must be associated with the correct classroom.
+Students from another classroom must not gain access to these materials unless explicitly authorized.
+Only authorized teachers should be able to upload, modify, or delete resources.
+Validate file types and sizes using the existing project's conventions and security practices.
+Use the existing file-storage infrastructure if available. If it is not available, implement a suitable solution that fits the current architecture.
+Do not store uploaded file contents directly in the database unless the existing architecture requires it. Store file metadata and a secure file reference where appropriate.
+B. Lecture Videos
+Teachers must be able to share recorded lectures with students using external video links, such as Google Drive links.
+Provide an interface where teachers can:
+Add a new lecture.
+Enter the lecture title.
+Add an optional description.
+Paste a video link.
+Set a completion requirement as a percentage.
+Save and publish the lecture to the selected classroom.
+View the lectures they have already added.
+Edit or remove lectures they are authorized to manage.
+Each lecture should have its own title, video URL, classroom association, completion requirement, and student progress records.
+For example, a teacher creates five lectures:
+Lecture 1 — Introduction to Microservices — 60 minutes
+Lecture 2 — API Gateway — 40 minutes
+Lecture 3 — Service Discovery — 30 minutes
+Lecture 4 — Load Balancing — 45 minutes
+Lecture 5 — Distributed Databases — 50 minutes
+The lectures should be displayed in an organized list, preferably with their titles, order, and completion status where appropriate.
+The teacher should be able to arrange the lectures in the intended learning sequence if the existing architecture supports ordering.
+4. Most Important Requirement: Video Completion Tracking
+This is the most important part of the feature.
+The system must track how much of each lecture a student has watched and display that progress to the teacher.
+A. Teacher-Defined Completion Percentage
+When creating a lecture, the teacher can set a completion threshold between 1% and 100%.
+For example:
+100% threshold: The student must watch the entire video to mark it complete.
+90% threshold: The student must watch at least 90% of the video.
+75% threshold: The student must watch at least 75% of the video.
+The selected threshold determines when a lecture is considered completed.
+Do not confuse the teacher-defined completion threshold with the student's actual watch percentage. These are two different values and must be stored or calculated separately.
+B. Example of 100% Completion
+Suppose a teacher shares a Google Drive folder or a collection of five recorded lectures.
+For this example, assume the system can identify the five individual videos and their durations.
+Lecture
+Duration
+Student has watched
+Actual progress
+Status at 100% threshold
+Lecture 1
+60 minutes
+30 minutes
+50%
+Incomplete
+Lecture 2
+40 minutes
+4 minutes
+10%
+Incomplete
+Lecture 3
+30 minutes
+0 minutes
+0%
+Not started
+Lecture 4
+45 minutes
+45 minutes
+100%
+Complete
+Lecture 5
+50 minutes
+25 minutes
+50%
+Incomplete
+The teacher must be able to see these individual results.
+For example:
+Lecture 1 — 50% complete
+Lecture 2 — 10% complete
+Lecture 3 — 0% complete
+Lecture 4 — 100% complete
+Lecture 5 — 50% complete
+If the threshold is 100%, a lecture watched for only 30 minutes out of 60 minutes must remain incomplete.
+If the teacher changes the threshold to 75%, a student who has watched at least 75% of the lecture should be marked complete.
+C. Calculating Actual Video Progress
+Where reliable video duration and playback information are available, calculate progress as follows:
+Actual watch percentage = (Verified watched duration / Total video duration) × 100
+For example:
+30 minutes watched / 60 minutes total × 100 = 50%.
+The system should record the student's progress for each lecture separately and preserve it across page refreshes, logouts, and subsequent visits.
+Do not calculate progress merely from the number of times a student opens a link or clicks a completion button.
+D. Reliable Video Tracking and Google Drive Compatibility
+Important technical limitation: A regular Google Drive share link does not automatically give a website access to the video's playback position, duration, or watch events.
+Before implementing tracking, inspect the available video sources and their integration capabilities.
+Implement the most reliable solution compatible with the existing project:
+Prefer an embeddable video player that exposes playback time and duration through a supported API.
+If Google Drive playback events are accessible through a supported integration, use them to record progress.
+If direct Google Drive tracking is not possible, provide a compatible alternative, such as an authorized embedded player or an approved video-hosting integration.
+If a video can only be opened as an ordinary external link, do not falsely report its viewing percentage as verified. Clearly indicate that automatic tracking is unavailable for that source.
+Do not claim that the system can reliably prove a student watched a video merely because the video page was opened.
+Where playback tracking is supported, record progress periodically and when the player reports relevant events, such as pausing, seeking, or finishing. Handle seeking and repeated playback carefully so that jumping directly to the end does not incorrectly count all skipped content as watched.
+Use a suitable progress-tracking approach that accounts for playback position and previously watched portions. Explain any limitations of the chosen method.
+The goal is to provide meaningful progress information rather than a misleading completion percentage.
+5. Teacher Interface: Analytics Integration
+Integrate lecture progress into the existing teacher Analytics tab.
+Do not replace or redesign the existing Analytics page. Add a new section to it for lecture progress, using the current layout and visualization conventions.
+A. Lecture-Level Analytics
+Display every lecture shared in the classroom with information such as:
+Lecture title
+Total number of enrolled students
+Number of students who completed the lecture
+Number of students who have not completed it
+Average verified watch percentage, where available
+Individual student progress
+For example:
+Lecture 1 — Introduction to Microservices
+Total enrolled students: 30
+Completed: 18
+In progress: 8
+Not started: 4
+The counts must be calculated from actual classroom enrollment and persisted student progress records, not hardcoded sample values.
+B. Individual Student Progress
+When the teacher opens a lecture's progress details, show a list or table containing:
+Student
+Watch Progress
+Status
+Student A
+100%
+Complete
+Student B
+50%
+In progress
+Student C
+10%
+In progress
+Student D
+0%
+Not started
+These are illustrative examples only. The actual application must display real data.
+The completion status must respect the threshold configured for that lecture.
+For example, if the threshold is 75%, a verified watch percentage of 80% means the lecture is complete, even though the actual watch percentage is not 100%.
+C. Analytics Requirements
+Preserve all existing analytics.
+Use real backend data.
+Ensure progress is scoped to the correct classroom, lecture, and student.
+Handle students who have not started a lecture.
+Display a clear state when tracking is unsupported for a video source.
+Update the displayed results when progress changes.
+Follow the existing project's visual style.
+6. Student Interface: Accessing Lectures and Notes
+When a student opens an enrolled classroom and selects Lectures, the student should see the resources shared by the teacher for that classroom.
+The page should contain two sections:
+A. Study Materials
+Students should be able to:
+View all available notes and study materials.
+See the title, description, file type, and upload date.
+Open or download supported files.
+Access previously uploaded materials whenever they return to the classroom.
+Students must not be able to upload, edit, or delete teacher-managed materials unless the existing authorization model explicitly grants them that permission.
+B. Recorded Lectures
+Students should be able to:
+View the list of recorded lectures.
+Open supported videos in an embedded player or through the appropriate external link.
+Continue watching a lecture from their previously saved position when the video integration supports it.
+See their individual watch percentage.
+See whether a lecture is not started, in progress, or complete.
+Continue learning without losing previously recorded progress.
+For example, if a student watched 30 minutes of a 60-minute lecture, the system should show 50% progress when the student returns.
+The student should not be able to modify their completion threshold or alter their stored progress through ordinary client-side controls.
+The backend must remain responsible for validating and persisting progress.
+7. Backend, Database, and Authorization
+Before implementing the feature, inspect the current backend and database schema.
+Reuse the existing user, teacher, student, classroom, and enrollment models.
+Extend the schema only where necessary to support:
+Study materials and file metadata
+Lecture metadata and video URLs
+Lecture ordering, if needed
+Teacher-defined completion thresholds
+Student-specific lecture progress
+Progress timestamps and any tracking information required by the selected video integration
+Use the project's existing migration system, ORM, API conventions, and validation patterns.
+Security requirements
+Only authenticated, authorized teachers can manage classroom resources.
+Students can access resources only for classrooms in which they are enrolled.
+Teachers should only manage resources for classrooms they are authorized to teach.
+Validate resource ownership and classroom access on the backend.
+Do not trust classroom IDs, user IDs, completion percentages, or authorization claims supplied by the frontend without validation.
+Do not expose private file-storage credentials or unrestricted private file URLs.
+Avoid introducing new authentication systems when the project already has one.
+Do not introduce a new database, backend framework, authentication provider, or storage service without first checking whether the existing infrastructure can support the feature.
+8. UI and Design Requirements
+The new functionality must look like a natural part of the existing Learning Assistant application.
+Before writing any UI code:
+Inspect the existing teacher classroom pages.
+Inspect the existing student classroom pages.
+Inspect the current Analytics tab.
+Identify reusable navigation elements, cards, tables, forms, modals, upload components, buttons, and progress indicators.
+Follow the existing design system and component conventions.
+Use the same:
+Colors and typography
+Navigation behavior
+Spacing and layout patterns
+Button styles
+Card and table styles
+Loading indicators
+Error messages
+Responsive behavior
+Do not redesign the dashboard or other classroom tabs.
+The Lectures page should be clean, intuitive, and consistent with the existing interface.
+Provide appropriate loading, empty, success, and error states.
+For example, if no lectures have been added, display a simple message such as "No lectures have been shared in this classroom yet."
+Do not introduce unnecessary animations, decorative UI, or unrelated design changes.
+9. Implementation Strategy
+Follow these steps in order.
+Phase 1: Inspect the Existing Project
+Before modifying anything:
+Inspect the project structure and relevant source files.
+Identify the frontend framework and backend framework.
+Identify the routing and navigation structure.
+Locate teacher and student classroom components.
+Locate the existing Analytics implementation.
+Identify the database schema and migration process.
+Understand the current authentication, role-based authorization, and classroom enrollment logic.
+Identify available file-storage and video integrations.
+Determine how the new feature can be implemented with the smallest possible changes.
+Do not assume that a particular framework, database, or file structure is being used. Verify it from the repository.
+Phase 2: Define the Minimal Changes
+Identify the exact files that need modification and the minimum new files required.
+Reuse existing code wherever possible.
+Before making changes, provide a brief implementation plan describing:
+Existing components that will be reused
+Existing files that need modification
+New files that need to be created
+Database changes and migrations
+API endpoints or server actions required
+How video tracking will work for supported sources
+Any limitations that cannot be resolved with the existing infrastructure
+Keep the implementation plan limited to this feature.
+Phase 3: Implement the Feature
+Implement the feature in a controlled sequence:
+Add the Lectures navigation item to the teacher and student classroom interfaces.
+Implement study material uploading, listing, access, and downloading.
+Implement lecture creation, editing, listing, and deletion for authorized teachers.
+Implement the student lecture list and supported playback experience.
+Implement reliable watch-progress tracking for compatible video sources.
+Persist student progress in the existing database.
+Add lecture analytics to the existing teacher Analytics tab.
+Apply authorization and classroom isolation.
+Add appropriate loading, empty, and error states.
+Preserve the existing classroom navigation and behavior apart from the requested addition.
+Phase 4: Test and Verify
+After implementation:
+Verify that existing teacher navigation still works.
+Verify that existing student navigation still works.
+Verify that all previous classroom features continue working.
+Test material uploading, opening, and downloading.
+Test lecture creation and display.
+Test progress persistence after refreshing the page.
+Test the 100%, 90%, and 75% completion thresholds.
+Test different video durations.
+Verify that unsupported Google Drive links are not falsely marked as tracked.
+Verify that students cannot access another classroom's private resources.
+Verify that unauthorized users cannot modify lectures or materials.
+Verify that Analytics displays real, persisted progress.
+Run the available tests, linting, type checks, and build commands relevant to the changes.
+Fix any regressions introduced by this feature.
+Do not modify unrelated code merely to clean up existing issues. If a pre-existing issue prevents testing, report it separately.
+10. Strict Rules You Must Follow
+Do not change anything unrelated to the requested feature.
+Do not redesign existing dashboards or classroom pages.
+Do not remove, rename, or replace existing features.
+Do not rewrite working components when a small extension is sufficient.
+Do not introduce unnecessary dependencies.
+Do not hardcode students, lectures, watch percentages, or analytics values.
+Do not fake video completion when reliable playback tracking is unavailable.
+Do not weaken authentication, authorization, or classroom privacy.
+Do not overwrite existing environment variables or configuration files unnecessarily.
+Do not discard existing user changes or reset the Git working tree.
+Do not create duplicate functionality when an equivalent component or service already exists.
+Keep the changes focused, maintainable, and consistent with the repository's existing architecture.
+If a technical limitation prevents a requirement from being implemented reliably, explain the limitation and provide the smallest compatible solution instead of silently implementing misleading behavior.
+11. Final Deliverables
+After completing the implementation, provide:
+A summary of the new features.
+A list of the existing files modified.
+A list of the new files created.
+Details of any database schema changes and migrations.
+An explanation of how teacher and student access works.
+An explanation of how video progress is calculated and persisted.
+An explanation of how completion thresholds affect analytics.
+A clear statement of which video sources support automatic tracking and which do not.
+The tests and build checks performed, including their results.
+Any remaining limitations or required configuration.
+Final objective: Add a complete, functional Lecture Videos and Study Materials feature to the existing Learning Assistant project while preserving all existing functionality, UI, and behavior outside the explicitly requested changes.
+--------------------------
+## 12. Additional Requirement: Embedded Video Player and Multiple Video Platforms
+
+This requirement is an important extension to the Lecture Videos feature. Implement it alongside all previously specified requirements.
+
+### A. Support Multiple Video Platforms
+
+On the teacher's side, when adding a lecture, the teacher should be able to paste a video URL from supported platforms, including:
+
+- YouTube public videos
+- Google Drive videos with the necessary sharing permissions
+- Other platforms that provide a supported embeddable video player
+- Direct video URLs, such as supported MP4 video links, where compatible with the existing architecture
+
+The teacher should not be restricted to YouTube alone.
+
+The system should identify the video platform from the URL and select the appropriate embedded player when possible.
+
+Provide a clear validation message if the URL is invalid, the video is private, embedding is disabled, or the platform is unsupported.
+
+### B. The Video Must Play Inside Our Website
+
+**This is a strict UI requirement: students must not be redirected to YouTube, Google Drive, or another external website just to watch a supported lecture.**
+
+When a student clicks a lecture card, open the lecture inside the Learning Assistant application itself.
+
+The video should play in an embedded video player within the existing website, preferably on a dedicated lecture-view page or an appropriate in-page player, depending on the current project architecture.
+
+Examples:
+
+- If a teacher provides a YouTube URL, convert it to the appropriate YouTube embed URL and display the embedded player.
+- If a teacher provides a Google Drive URL, convert it to a supported preview/embed URL when possible and display the video inside the application.
+- If a teacher provides a supported direct video URL, play it using an HTML5 video player.
+- For other supported platforms, use their official embed mechanism or player API.
+
+Do not simply save the original URL and redirect the student to it when the lecture is opened.
+
+The lecture title, description, playback controls, and progress indicator should remain part of the Learning Assistant experience.
+
+**Important limitation:** Embedding is not possible for every URL. Some providers disable embedding, require authentication, restrict playback by domain, or impose other restrictions. Do not bypass these restrictions or pretend an unsupported video can be embedded. Show a clear, helpful message when a video cannot be played within the application.
+
+Do not expose a raw video URL in the student's lecture list. The URL may be stored and used internally, but the student-facing interface should display the lecture title, description, duration, and relevant progress information instead.
+
+### C. Student Lecture Cards: Match the Reference Screenshot
+
+Use the uploaded screenshot as a reference for the lecture-list layout.
+
+Display each lecture as a clean, well-spaced card or box that matches the existing Learning Assistant design system.
+
+For example:
+
+**Lecture 1 — Introduction to Microservices**
+
+Introduction to microservices architecture and its core principles.
+
+Duration: 60 minutes
+
+Progress: 50% complete
+
+The actual interface should display the saved title and description supplied by the teacher. The example above is illustrative.
+
+Each lecture card should:
+
+- Display the lecture title clearly.
+- Display an optional short description.
+- Display the duration when known.
+- Show the student's progress and completion status.
+- Be clickable to open the lecture's embedded player.
+- Provide a clear visual distinction between not-started, in-progress, and completed lectures.
+- Work properly on desktop, tablet, and mobile screens.
+
+Do not display long video URLs, embed URLs, or technical platform identifiers on the student-facing card.
+
+Keep the lecture cards consistent with the existing colors, typography, spacing, borders, and components. Do not redesign unrelated pages.
+
+### D. Embedded Video Player and Playback Controls
+
+The lecture player should provide the controls supported by the selected platform.
+
+Where technically supported, students should be able to:
+
+- Play and pause the video.
+- Seek forward and backward using the timeline.
+- Skip backward by a short interval, such as 10 seconds.
+- Skip forward by a short interval, such as 10 seconds.
+- Adjust the playback volume.
+- Switch to fullscreen.
+- Change playback speed.
+
+Provide these playback-speed options where supported:
+
+- 0.25×
+- 0.5×
+- 0.75×
+- 1×
+- 1.25×
+- 1.5×
+- 1.75×
+- 2×
+
+The default playback speed should be 1×.
+
+Use the official embedded player controls or player APIs when necessary. Do not build fake controls that appear functional but cannot control the actual video.
+
+For direct video files, use the native HTML5 video element or a compatible existing player component. For YouTube and other supported platforms, use their official embedded player APIs where appropriate.
+
+Some embedded players do not expose all playback controls or allow custom controls. In those cases, use the provider's supported controls rather than promising unavailable functionality.
+
+For example, if a Google Drive preview does not expose playback-speed control through a supported API, do not display a custom speed selector that cannot change the playback rate.
+
+### E. Video Progress Tracking Must Continue Working
+
+The embedded player must integrate with the previously specified lecture-progress system.
+
+Where the selected player exposes reliable playback events, use them to record and persist each student's progress.
+
+Requirements:
+
+1. Save progress periodically while the video is playing.
+2. Save progress when the student pauses or leaves the lecture, where possible.
+3. Restore the student's previous position when they return, if the player supports seeking and restoration.
+4. Calculate actual watch progress using the total video duration and reliable playback information.
+5. Prevent students from receiving full completion credit simply by opening the lecture or seeking directly to the end.
+6. Respect the teacher-defined completion threshold.
+7. Update the student's progress display and the teacher's Analytics tab using persisted data.
+8. Keep progress separate for each student and each lecture.
+9. Handle player errors, unsupported sources, and unavailable durations without inventing completion percentages.
+
+For platforms that do not expose sufficient playback information, clearly indicate that automatic tracking is unavailable or limited.
+
+Do not compromise the existing authentication, database, or classroom authorization system to implement playback.
+
+### F. Teacher Experience When Adding a Video
+
+When a teacher pastes a video link, provide a simple form containing:
+
+- Lecture title
+- Description
+- Video URL
+- Completion threshold
+- Duration, populated automatically where supported or entered manually when necessary
+- Save/Publish action
+
+Where feasible, display a preview of the detected video before the teacher publishes it.
+
+Validate the URL and determine whether the platform supports embedding and progress tracking. Clearly distinguish between:
+
+- Embedded playback with automatic progress tracking
+- Embedded playback with limited or unavailable tracking
+- Unsupported playback that cannot be embedded
+
+Do not claim automatic tracking is available unless the integration actually supports it.
+
+### G. Final Acceptance Criteria
+
+Before considering this requirement complete, verify all of the following:
+
+1. A teacher can add a supported YouTube video URL.
+2. A teacher can add a Google Drive video URL with the necessary permissions.
+3. Other supported video sources can be added through the same interface.
+4. Students see lecture cards containing titles, descriptions, durations, and progress, not raw video URLs.
+5. Clicking a supported lecture opens its player inside the Learning Assistant website.
+6. Students are not unnecessarily redirected to the original hosting website.
+7. Playback controls work for the selected provider, including speed controls wherever supported.
+8. Video progress is saved and restored wherever the integration permits.
+9. Teacher Analytics displays the correct persisted progress and completion status.
+10. Unsupported or restricted videos produce clear messages rather than broken players or fabricated progress.
+11. All existing features and layouts outside this requested functionality remain unchanged.
+
+**Priority:** The student's experience should feel like watching a lecture directly inside our Learning Assistant platform, even when the video is hosted by YouTube or another supported provider.

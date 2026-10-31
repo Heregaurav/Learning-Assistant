@@ -211,3 +211,44 @@ class ClassroomTutorMessageIn(BaseModel):
     conceptName: Optional[str] = Field(default=None, max_length=160)
     provider: Literal["groq", "gemini", "openrouter"] = "groq"
     model: str = "qwen/qwen3.8-27b"
+
+
+class ClassroomMaterialUpdateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = Field(default="", max_length=5000)
+
+
+class ClassroomLectureIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = Field(default="", max_length=5000)
+    videoUrl: str = Field(min_length=1, max_length=2000)
+    durationSeconds: Optional[int] = Field(default=0, ge=0)
+    completionThreshold: int = Field(default=100, ge=1, le=100)
+    position: Optional[int] = Field(default=0, ge=0)
+
+
+class ClassroomLectureUpdateIn(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=5000)
+    videoUrl: Optional[str] = Field(default=None, min_length=1, max_length=2000)
+    durationSeconds: Optional[int] = Field(default=None, ge=0)
+    completionThreshold: Optional[int] = Field(default=None, ge=1, le=100)
+    position: Optional[int] = Field(default=None, ge=0)
+
+
+class ClassroomLectureProgressIn(BaseModel):
+    watchedSeconds: float = Field(ge=0)
+    lastPositionSeconds: float = Field(ge=0)
+    totalDurationSeconds: float = Field(ge=0)
+
+
+class ClassroomMemberAddIn(BaseModel):
+    email: Optional[str] = Field(default=None, max_length=255)
+    userId: Optional[str] = Field(default=None, max_length=255)
+    role: Literal["STUDENT", "ASSISTANT"] = "STUDENT"
+
+
+class ClassroomMemberRoleUpdateIn(BaseModel):
+    role: Literal["STUDENT", "ASSISTANT", "OWNER"]
+
+
