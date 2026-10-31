@@ -586,6 +586,57 @@ class Database:
         )
         return result.rowcount == 1
 
+    def add_member(self, classroom_id: str, user_id: str, role: str, joined_at=None):
+        session = current_session()
+        dt = _parse_datetime(joined_at) if joined_at else datetime.now(timezone.utc)
+        statement = insert(ClassroomMember).values(
+            classroomId=classroom_id,
+            userId=user_id,
+            role=role,
+            joinedAt=dt,
+        ).on_conflict_do_update(
+            constraint="uq_classroom_member",
+            set_={"role": role},
+        )
+        result = session.execute(statement)
+        session.execute(
+            update(Classroom)
+            .where(Classroom.id == classroom_id)
+            .values(updatedAt=dt)
+        )
+        return result.rowcount >= 1
+
+    def update_member_role(self, classroom_id: str, user_id: str, role: str):
+        session = current_session()
+        dt = datetime.now(timezone.utc)
+        statement = (
+            update(ClassroomMember)
+            .where(and_(ClassroomMember.classroomId == classroom_id, ClassroomMember.userId == user_id))
+            .values(role=role)
+        )
+        result = session.execute(statement)
+        session.execute(
+            update(Classroom)
+            .where(Classroom.id == classroom_id)
+            .values(updatedAt=dt)
+        )
+        return result.rowcount >= 1
+
+    def remove_member(self, classroom_id: str, user_id: str):
+        session = current_session()
+        dt = datetime.now(timezone.utc)
+        statement = (
+            delete(ClassroomMember)
+            .where(and_(ClassroomMember.classroomId == classroom_id, ClassroomMember.userId == user_id))
+        )
+        result = session.execute(statement)
+        session.execute(
+            update(Classroom)
+            .where(Classroom.id == classroom_id)
+            .values(updatedAt=dt)
+        )
+        return result.rowcount >= 1
+
     def __getattr__(self, name):
         if name == "sessions":
             return Collection(name)

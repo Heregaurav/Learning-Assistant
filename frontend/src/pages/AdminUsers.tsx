@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { getPlatformUsers, updatePlatformUserRole } from "../lib/api";
 import type { PlatformUser } from "../lib/api";
 import { SkeletonList } from "../components/Skeletons";
@@ -47,6 +48,10 @@ export default function AdminUsers({ currentUserId }: Props) {
       <p className="text-xs uppercase tracking-[0.18em] text-primary/75">Platform administration</p>
       <h1 className="mt-2 text-3xl font-semibold">Users and roles</h1>
       <p className="mt-2 max-w-2xl text-sm text-[#D7D1B5]">New accounts start as students. Assign faculty access here; classroom permissions are enforced by the API.</p>
+      <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4 text-xs text-[#D7D1B5] flex flex-wrap items-center justify-between gap-3">
+        <span>Looking to manage students and teachers for a specific course? Classroom user and role administration is now located directly inside each classroom&apos;s <strong>People</strong> tab.</span>
+        <Link to="/classrooms" className="rounded-lg bg-primary/20 px-3 py-1.5 font-medium text-primary hover:bg-primary hover:text-black transition-colors">Go to Classrooms</Link>
+      </div>
       {error && <p role="alert" className="mt-4 rounded-lg border border-red-400/40 bg-red-950/40 p-3 text-sm text-red-100">{error}</p>}
       {notice && <p role="status" className="mt-4 text-sm text-emerald-200">{notice}</p>}
       {loading ? <div aria-busy="true" aria-label="Loading users"><p className="sr-only" role="status">Loading users…</p><SkeletonList count={5} /></div> : users.length === 0 ? (

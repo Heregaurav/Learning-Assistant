@@ -1,5 +1,6 @@
 import type {
   Classroom,
+  ClassroomMember,
   ClassroomAssessment,
   ClassroomCurriculum,
   ClassroomKnowledgeGraph,
@@ -213,6 +214,44 @@ export const joinClassroom = (joinCode: string) =>
   });
 
 const classroomPath = (classroomId: string) => `/api/classrooms/${encodeURIComponent(classroomId)}`;
+
+export type ClassroomMembersResponse = {
+  classroomId: string;
+  members: ClassroomMember[];
+  ownerId?: string;
+  joinCode?: string;
+  memberCount?: number;
+};
+
+export const getClassroomMembers = (classroomId: string) =>
+  req<ClassroomMembersResponse>(`${classroomPath(classroomId)}/members`);
+
+export const addClassroomMember = (
+  classroomId: string,
+  payload: { email?: string; userId?: string; role: "STUDENT" | "ASSISTANT" },
+) =>
+  req<Classroom>(`${classroomPath(classroomId)}/members`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const updateClassroomMemberRole = (
+  classroomId: string,
+  userId: string,
+  role: "STUDENT" | "ASSISTANT" | "OWNER",
+) =>
+  req<Classroom>(`${classroomPath(classroomId)}/members/${encodeURIComponent(userId)}/role`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+
+export const removeClassroomMember = (classroomId: string, userId: string) =>
+  req<{ removed: boolean; userId: string; classroomId: string }>(
+    `${classroomPath(classroomId)}/members/${encodeURIComponent(userId)}`,
+    {
+      method: "DELETE",
+    },
+  );
 
 export const getClassroomCurriculum = (classroomId: string) =>
   req<ClassroomCurriculum>(`${classroomPath(classroomId)}/curriculum`);
@@ -579,6 +618,9 @@ export const deleteClassroomMaterial = (classroomId: string, materialId: string)
 export const getMaterialDownloadUrl = (classroomId: string, materialId: string) =>
   apiUrl(`/api/classrooms/${encodeURIComponent(classroomId)}/materials/${encodeURIComponent(materialId)}/download`);
 
+export const getMaterialViewUrl = (classroomId: string, materialId: string) =>
+  apiUrl(`/api/classrooms/${encodeURIComponent(classroomId)}/materials/${encodeURIComponent(materialId)}/view`);
+
 export const getClassroomLectures = (classroomId: string) =>
   req<ClassroomLecture[]>(`/api/classrooms/${encodeURIComponent(classroomId)}/lectures`);
 
@@ -652,6 +694,9 @@ export const validateLectureUrl = (classroomId: string, videoUrl: string) =>
     trackingSupported: boolean;
     videoId: string;
     valid: boolean;
+    durationSeconds?: number;
+    durationMinutes?: number;
+    suggestedTitle?: string;
     message: string;
   }>(`/api/classrooms/${encodeURIComponent(classroomId)}/lectures/validate-url`, {
     method: "POST",

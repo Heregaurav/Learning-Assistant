@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -8,6 +8,7 @@ import {
   Clock,
   Download,
   ExternalLink,
+  Eye,
   File,
   FileSpreadsheet,
   FileText,
@@ -36,6 +37,7 @@ import {
   getClassroomLectures,
   getClassroomMaterials,
   getMaterialDownloadUrl,
+  getMaterialViewUrl,
   recordLectureProgress,
   updateClassroomLecture,
   updateClassroomMaterial,
@@ -115,6 +117,7 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
   const [editingMaterial, setEditingMaterial] = useState<ClassroomMaterial | null>(null);
   const [materialDeleteTarget, setMaterialDeleteTarget] = useState<ClassroomMaterial | null>(null);
   const [materialSearch, setMaterialSearch] = useState("");
+  const [viewingMaterial, setViewingMaterial] = useState<ClassroomMaterial | null>(null);
 
   // Lecture Add & Edit Modals
   const [showLectureModal, setShowLectureModal] = useState(false);
@@ -129,6 +132,9 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
     platform: string;
     embedUrl: string;
     trackingSupported: boolean;
+    durationSeconds?: number;
+    durationMinutes?: number;
+    suggestedTitle?: string;
     message: string;
   } | null>(null);
   const [editingLecture, setEditingLecture] = useState<ClassroomLecture | null>(null);
@@ -158,7 +164,7 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
     void loadData();
   }, [classroomId]);
 
-  // Handle URL changes with live preview validation
+  // Handle URL changes with live preview validation and auto-duration detection
   useEffect(() => {
     if (!lectureUrl.trim()) {
       setUrlValidation(null);
@@ -166,7 +172,15 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
     }
     const timer = setTimeout(() => {
       validateLectureUrl(classroomId, lectureUrl.trim())
-        .then((res) => setUrlValidation(res))
+        .then((res) => {
+          setUrlValidation(res);
+          if (res.durationMinutes && res.durationMinutes > 0) {
+            setLectureMinutes(String(res.durationMinutes));
+          }
+          if (res.suggestedTitle && !lectureTitle.trim()) {
+            setLectureTitle(res.suggestedTitle);
+          }
+        })
         .catch(() => setUrlValidation(null));
     }, 350);
     return () => clearTimeout(timer);
@@ -241,7 +255,7 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
     }
     setSavingLecture(true);
     setError("");
-    const durationSeconds = Math.max(0, parseInt(lectureMinutes, 10) || 0) * 60;
+    const durationSeconds = Math.max(0, Math.round((parseFloat(lectureMinutes) || 0) * 60));
     const threshold = Math.max(1, Math.min(100, parseInt(lectureThreshold, 10) || 100));
 
     try {
@@ -568,11 +582,22 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
               {filteredMaterials.map((mat) => (
                 <div key={mat.id} className="flex flex-wrap items-center justify-between gap-4 py-3.5">
                   <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <div className="mt-0.5 shrink-0 rounded bg-white/5 p-2 border border-primary/15">
+                    <button
+                      type="button"
+                      onClick={() => setViewingMaterial(mat)}
+                      className="mt-0.5 shrink-0 rounded bg-white/5 p-2 border border-primary/15 hover:border-primary/50 hover:bg-primary/10 transition-colors"
+                      title="Click to view material"
+                    >
                       {getFileIcon(mat.filename, mat.fileType)}
-                    </div>
+                    </button>
                     <div className="min-w-0">
-                      <h4 className="truncate text-sm font-medium text-[#f2efe8]">{mat.title}</h4>
+                      <h4
+                        onClick={() => setViewingMaterial(mat)}
+                        className="truncate text-sm font-medium text-[#f2efe8] cursor-pointer hover:text-primary transition-colors"
+                        title="Click to view material"
+                      >
+                        {mat.title}
+                      </h4>
                       {mat.description && (
                         <p className="mt-0.5 line-clamp-1 text-xs text-[#c9c4b5]">{mat.description}</p>
                       )}
@@ -597,12 +622,22 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setViewingMaterial(mat)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/20 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary hover:text-black transition-colors"
+                      title="View file on screen without downloading"
+                    >
+                      <Eye size={13} /> View
+                    </button>
+
                     <a
                       href={getMaterialDownloadUrl(classroomId, mat.id)}
                       download={mat.filename}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary hover:text-black transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-[#c9c4b5] hover:bg-white/10 hover:text-white transition-colors"
                       target="_blank"
                       rel="noopener noreferrer"
+                      title="Download file to computer"
                     >
                       <Download size={13} /> Download
                     </a>
@@ -637,9 +672,111 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
         </div>
       )}
 
+      {/* In-App Study Material / PDF Viewer Modal */}
+      {viewingMaterial && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 md:p-6 backdrop-blur-sm"
+          onMouseDown={(e) => e.target === e.currentTarget && setViewingMaterial(null)}
+        >
+          <div className="flex h-full max-h-[92vh] w-full max-w-5xl flex-col rounded-xl border border-primary/30 bg-[#080d12] shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-primary/20 px-5 py-3.5 bg-black/50">
+              <div className="flex items-center gap-3 min-w-0 pr-4">
+                <div className="rounded bg-white/5 p-2 border border-primary/15 shrink-0">
+                  {getFileIcon(viewingMaterial.filename, viewingMaterial.fileType)}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="truncate text-base font-semibold text-[#f2efe8]">{viewingMaterial.title}</h3>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-primary/70">
+                    <span className="font-mono">{viewingMaterial.filename}</span>
+                    <span>·</span>
+                    <span>{formatBytes(viewingMaterial.fileSize)}</span>
+                    {viewingMaterial.uploadedByName && (
+                      <>
+                        <span>·</span>
+                        <span>Uploaded by {viewingMaterial.uploadedByName}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={getMaterialViewUrl(classroomId, viewingMaterial.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary hover:text-black transition-colors"
+                  title="Open file in full browser tab"
+                >
+                  <ExternalLink size={13} /> Full Window
+                </a>
+                <a
+                  href={getMaterialDownloadUrl(classroomId, viewingMaterial.id)}
+                  download={viewingMaterial.filename}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-medium text-[#c9c4b5] hover:bg-white/10 hover:text-white transition-colors"
+                  title="Download file to device"
+                >
+                  <Download size={13} /> Download
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setViewingMaterial(null)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-primary/25 text-primary hover:bg-white/10 ml-1"
+                  aria-label="Close viewer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Viewer Content */}
+            <div className="relative flex-1 bg-[#05080c] flex items-center justify-center overflow-hidden">
+              {viewingMaterial.filename.toLowerCase().endsWith(".pdf") || viewingMaterial.fileType.includes("pdf") ? (
+                <iframe
+                  src={getMaterialViewUrl(classroomId, viewingMaterial.id)}
+                  title={viewingMaterial.title}
+                  className="h-full w-full border-0 bg-white"
+                />
+              ) : ["png", "jpg", "jpeg", "webp", "gif"].some((ext) => viewingMaterial.filename.toLowerCase().endsWith("." + ext)) || viewingMaterial.fileType.includes("image") ? (
+                <div className="flex h-full w-full items-center justify-center p-4">
+                  <img
+                    src={getMaterialViewUrl(classroomId, viewingMaterial.id)}
+                    alt={viewingMaterial.title}
+                    className="max-h-full max-w-full object-contain rounded-lg shadow-2xl"
+                  />
+                </div>
+              ) : ["txt", "md", "csv"].some((ext) => viewingMaterial.filename.toLowerCase().endsWith("." + ext)) || viewingMaterial.fileType.includes("text") ? (
+                <iframe
+                  src={getMaterialViewUrl(classroomId, viewingMaterial.id)}
+                  title={viewingMaterial.title}
+                  className="h-full w-full border-0 bg-[#0d1318] text-[#f2efe8] p-4 font-mono text-xs"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-8 text-center max-w-md">
+                  <FileSpreadsheet size={48} className="text-primary/70 mb-3" />
+                  <h4 className="text-base font-semibold text-[#f2efe8]">{viewingMaterial.filename}</h4>
+                  <p className="mt-2 text-xs text-[#c9c4b5] leading-relaxed">
+                    This file format is designed to be opened in desktop applications like Microsoft Word or PowerPoint. You can download it directly to view its complete formatting.
+                  </p>
+                  <a
+                    href={getMaterialDownloadUrl(classroomId, viewingMaterial.id)}
+                    download={viewingMaterial.filename}
+                    className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-black hover:opacity-90 transition-opacity"
+                  >
+                    <Download size={14} /> Download File
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* In-Page Video Player Modal */}
       {playingLecture && (
         <InAppLecturePlayer
+          key={playingLecture.id}
           classroomId={classroomId}
           lecture={playingLecture}
           onClose={() => {
@@ -832,32 +969,65 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <label className="grid gap-1 text-xs text-primary/80">
-                  Duration (Minutes)
+                  <div className="flex items-center justify-between">
+                    <span>Duration (Minutes)</span>
+                    {urlValidation?.durationMinutes ? (
+                      <span className="text-[10px] text-emerald-400 font-medium">
+                        ✓ Auto-detected: {urlValidation.durationMinutes} min
+                      </span>
+                    ) : null}
+                  </div>
                   <input
                     type="number"
-                    min="1"
+                    step="any"
+                    min="0.1"
                     value={lectureMinutes}
                     onChange={(e) => setLectureMinutes(e.target.value)}
-                    placeholder="e.g. 60"
-                    className="rounded-lg border border-primary/25 bg-black/40 px-3 py-2 text-sm text-[#f2efe8]"
+                    placeholder="e.g. 36.15"
+                    className="rounded-lg border border-primary/25 bg-black/40 px-3 py-2 text-sm text-[#f2efe8] focus:border-primary focus:outline-none"
                   />
+                  <span className="text-[10px] text-[#c9c4b5]">
+                    {urlValidation?.durationMinutes
+                      ? "Automatically set from video. You can adjust if needed."
+                      : "Enter video duration in minutes (e.g. 36.15)"}
+                  </span>
                 </label>
 
-                <label className="grid gap-1 text-xs text-primary/80">
-                  Completion Threshold (%)
+                <div className="grid gap-1 text-xs text-primary/80">
+                  <div className="flex items-center justify-between">
+                    <span>Completion Threshold: {lectureThreshold}%</span>
+                    <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-mono text-primary font-semibold">
+                      {lectureThreshold}% required
+                    </span>
+                  </div>
                   <input
-                    type="number"
+                    type="range"
                     min="1"
                     max="100"
                     value={lectureThreshold}
                     onChange={(e) => setLectureThreshold(e.target.value)}
-                    placeholder="100"
-                    className="rounded-lg border border-primary/25 bg-black/40 px-3 py-2 text-sm text-[#f2efe8]"
+                    className="w-full accent-primary cursor-pointer my-1"
                   />
-                  <span className="text-[10px] text-[#c9c4b5]">e.g. 100%, 90%, 75%</span>
-                </label>
+                  <div className="flex items-center justify-between gap-1 text-[10px]">
+                    <span className="text-[#c9c4b5]">Presets:</span>
+                    {[100, 90, 75, 50].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setLectureThreshold(String(val))}
+                        className={`rounded px-1.5 py-0.5 border text-[10px] transition-colors ${
+                          lectureThreshold === String(val)
+                            ? "border-primary bg-primary text-black font-semibold"
+                            : "border-primary/25 text-primary hover:bg-white/5"
+                        }`}
+                      >
+                        {val}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="classroom-delete-actions mt-3">
@@ -901,6 +1071,83 @@ export default function ClassroomLectures({ classroomId, canEdit, user }: Props)
 /* In-App Embedded Lecture Video Player Component                                */
 /* Strict requirement: plays in-app, supports HTML5, YouTube, GDrive iframe      */
 /* ============================================================================= */
+
+type WatchRange = { start: number; end: number };
+
+/** Adds [start, end] to a sorted list of watched ranges, merging any overlaps. */
+function addWatchRange(ranges: WatchRange[], start: number, end: number): WatchRange[] {
+  if (!(end > start)) return ranges;
+  let next = { start, end };
+  const kept: WatchRange[] = [];
+  for (const r of ranges) {
+    if (r.end < next.start || r.start > next.end) {
+      kept.push(r);
+    } else {
+      next = { start: Math.min(r.start, next.start), end: Math.max(r.end, next.end) };
+    }
+  }
+  kept.push(next);
+  return kept.sort((a, b) => a.start - b.start);
+}
+
+function totalWatchRanges(ranges: WatchRange[]): number {
+  return ranges.reduce((sum, r) => sum + (r.end - r.start), 0);
+}
+
+/** Formats seconds as a player clock, e.g. 0:00, 4:05, 1:02:09. */
+function formatClock(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const ss = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+/** Extracts the 11-character YouTube video id from an embed / watch / short / shorts URL. */
+function extractYouTubeId(...urls: string[]): string {
+  for (const u of urls) {
+    const m = (u || "").match(/(?:embed\/|youtu\.be\/|[?&]v=|shorts\/)([a-zA-Z0-9_-]{11})/);
+    if (m) return m[1];
+  }
+  return "";
+}
+
+let ytApiPromise: Promise<any> | null = null;
+
+/** Loads the YouTube IFrame API exactly once and resolves with `window.YT` when it is ready. */
+function loadYouTubeApi(): Promise<any> {
+  if (window.YT && window.YT.Player) return Promise.resolve(window.YT);
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve, reject) => {
+    const prevCallback = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (typeof prevCallback === "function") prevCallback();
+      resolve(window.YT);
+    };
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      tag.async = true;
+      tag.onerror = () => {
+        ytApiPromise = null;
+        reject(new Error("Failed to load the YouTube IFrame API"));
+      };
+      document.head.appendChild(tag);
+    }
+  });
+  return ytApiPromise;
+}
+
+function youTubeErrorMessage(code: number): string {
+  if (code === 101 || code === 150) {
+    return "The owner of this video does not allow it to be played on other websites. Use \"Open Source Video\" to watch it on YouTube.";
+  }
+  if (code === 100) return "This video was removed or is private.";
+  if (code === 2) return "The video link is invalid. Ask your teacher to check the lecture URL.";
+  if (code === 5) return "This video cannot be played in the in-app HTML5 player.";
+  return `YouTube could not play this video (error ${code}).`;
+}
+
 function InAppLecturePlayer({
   classroomId,
   lecture,
@@ -910,158 +1157,253 @@ function InAppLecturePlayer({
   lecture: ClassroomLecture;
   onClose: () => void;
 }) {
+  const initialWatched = lecture.progress?.watchedSeconds || 0;
+  const resumeAt = lecture.progress?.lastPositionSeconds || 0;
+
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(lecture.progress?.lastPositionSeconds || 0);
+  const [currentTime, setCurrentTime] = useState(resumeAt);
   const [duration, setDuration] = useState(lecture.durationSeconds || 0);
-  const [watchedSeconds, setWatchedSeconds] = useState(lecture.progress?.watchedSeconds || 0);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(false);
+  const [watchedSeconds, setWatchedSeconds] = useState(initialWatched);
+  const [ytReady, setYtReady] = useState(false);
+  const [playerError, setPlayerError] = useState("");
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const ytHostRef = useRef<HTMLDivElement>(null);
   const ytPlayerRef = useRef<any>(null);
-  const syncTimerRef = useRef<number | null>(null);
-  const watchedRangesRef = useRef<{ start: number; end: number }[]>([]);
+
+  // Previously-saved watch time is treated as the opening segment of the video, so
+  // re-watching the beginning in a later session is not counted twice.
+  const seedRanges: WatchRange[] = initialWatched > 0 ? [{ start: 0, end: initialWatched }] : [];
+  const watchedRangesRef = useRef<WatchRange[]>(seedRanges);
+
+  // Latest values mirrored into refs so timers and unmount cleanup never read stale state.
+  const watchedRef = useRef(initialWatched);
+  const positionRef = useRef(resumeAt);
+  const durationRef = useRef(lecture.durationSeconds || 0);
+  const lastSavedRef = useRef({ watched: Math.round(initialWatched), position: Math.round(resumeAt) });
+
+  const youTubeId = lecture.platform === "youtube" ? extractYouTubeId(lecture.embedUrl, lecture.videoUrl) : "";
 
   const threshold = lecture.completionThreshold || 100;
   const currentPercent = duration > 0 ? Math.min(100, Math.round((watchedSeconds / duration) * 100)) : 0;
   const isCompleted = currentPercent >= threshold;
 
-  // Persist progress to backend
-  const persistProgress = (watched: number, lastPos: number, totalDur: number) => {
-    if (!lecture.trackingSupported || totalDur <= 0) return;
-    recordLectureProgress(classroomId, lecture.id, {
-      watchedSeconds: Math.round(watched),
-      lastPositionSeconds: Math.round(lastPos),
-      totalDurationSeconds: Math.round(totalDur),
-    }).catch(() => {
-      // silent fail in background 
-    });
+  const updateDuration = (d: number) => {
+    if (d > 0 && Math.abs(d - durationRef.current) > 0.5) {
+      durationRef.current = d;
+      setDuration(d);
+    }
   };
 
-  // Sync periodically
-  useEffect(() => {
-    syncTimerRef.current = window.setInterval(() => {
-      if (isPlaying && duration > 0) {
-        persistProgress(watchedSeconds, currentTime, duration);
-      }
-    }, 5000);
-    return () => {
-      if (syncTimerRef.current) clearInterval(syncTimerRef.current);
-      persistProgress(watchedSeconds, currentTime, duration);
-    };
-  }, [isPlaying, watchedSeconds, currentTime, duration]);
+  const updatePosition = (t: number) => {
+    positionRef.current = t;
+    setCurrentTime(t);
+  };
 
-  // YouTube Iframe API initialization 
+  /** Recomputes verified watch time from the merged watched ranges. */
+  const commitWatchedRanges = (ranges: WatchRange[]) => {
+    watchedRangesRef.current = ranges;
+    const total = durationRef.current;
+    const watched = total > 0 ? Math.min(total, totalWatchRanges(ranges)) : totalWatchRanges(ranges);
+    watchedRef.current = watched;
+    setWatchedSeconds(watched);
+  };
+
+  // Persist progress to backend (no-op when nothing changed since the last save)
+  const persistProgress = (): Promise<void> => {
+    const total = durationRef.current;
+    if (!lecture.trackingSupported || total <= 0) return Promise.resolve();
+    const watched = Math.round(Math.min(watchedRef.current, total));
+    const position = Math.round(Math.min(positionRef.current, total));
+    if (watched === lastSavedRef.current.watched && position === lastSavedRef.current.position) {
+      return Promise.resolve();
+    }
+    lastSavedRef.current = { watched, position };
+    return recordLectureProgress(classroomId, lecture.id, {
+      watchedSeconds: watched,
+      lastPositionSeconds: position,
+      totalDurationSeconds: Math.round(total),
+    })
+      .then(() => undefined)
+      .catch(() => {
+        // silent fail in background
+      });
+  };
+
+  // Sync periodically, when the tab is hidden, and when the player unmounts
+  useEffect(() => {
+    const timer = window.setInterval(() => void persistProgress(), 10000);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") void persistProgress();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      void persistProgress();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lecture.id]);
+
+  // YouTube IFrame API player. Created once per lecture; play/pause state changes never
+  // recreate it. React only owns the empty host <div>; the API injects its own iframe
+  // into a child node, so creating/destroying the player never conflicts with React's DOM.
   useEffect(() => {
     if (lecture.platform !== "youtube") return;
+    const host = ytHostRef.current;
+    if (!host) return;
+    if (!youTubeId) {
+      setPlayerError("Could not read the YouTube video ID from this lecture link.");
+      return;
+    }
 
     let cancelled = false;
-    const initYt = () => {
-      if (cancelled || !window.YT || !window.YT.Player) return;
-      try {
-        ytPlayerRef.current = new window.YT.Player("youtube-player-frame", {
+    let pollTimer: number | undefined;
+    let lastSample: { time: number; at: number } | null = null;
+
+    const mountNode = document.createElement("div");
+    host.appendChild(mountNode);
+
+    // Samples the real playback clock. Only natural forward playback is counted as
+    // watched; seeks, skips and paused time are ignored.
+    const sample = () => {
+      const player = ytPlayerRef.current;
+      if (!player || typeof player.getCurrentTime !== "function") return;
+      const t = Number(player.getCurrentTime()) || 0;
+      updateDuration(Number(player.getDuration?.()) || 0);
+
+      const playing = player.getPlayerState?.() === window.YT?.PlayerState?.PLAYING;
+      const now = performance.now();
+      if (playing && lastSample) {
+        const delta = t - lastSample.time;
+        const rate = Number(player.getPlaybackRate?.()) || 1;
+        const maxNaturalAdvance = ((now - lastSample.at) / 1000) * rate + 1;
+        if (delta > 0 && delta <= maxNaturalAdvance) {
+          commitWatchedRanges(addWatchRange(watchedRangesRef.current, lastSample.time, t));
+        }
+      }
+      lastSample = playing ? { time: t, at: now } : null;
+      updatePosition(t);
+    };
+
+    loadYouTubeApi()
+      .then((YT) => {
+        if (cancelled) return;
+        ytPlayerRef.current = new YT.Player(mountNode, {
+          videoId: youTubeId,
+          width: "100%",
+          height: "100%",
+          playerVars: {
+            autoplay: 1,
+            rel: 0,
+            playsinline: 1,
+            modestbranding: 1,
+            enablejsapi: 1,
+            origin: window.location.origin,
+            start: Math.floor(resumeAt),
+          },
           events: {
             onReady: (event: any) => {
-              const dur = event.target.getDuration();
-              if (dur > 0) setDuration(dur);
-              if (lecture.progress?.lastPositionSeconds && lecture.progress.lastPositionSeconds > 0) {
-                event.target.seekTo(lecture.progress.lastPositionSeconds, true);
+              if (cancelled) return;
+              setYtReady(true);
+              updateDuration(Number(event.target.getDuration?.()) || 0);
+              try {
+                event.target.playVideo();
+              } catch {
+                // autoplay may be blocked; the user can press play
               }
             },
             onStateChange: (event: any) => {
-              if (event.data === window.YT.PlayerState.PLAYING) {
+              if (cancelled) return;
+              const state = YT.PlayerState;
+              if (event.data === state.PLAYING) {
                 setIsPlaying(true);
-              } else {
+                setPlayerError("");
+              } else if (event.data === state.PAUSED || event.data === state.ENDED) {
                 setIsPlaying(false);
+                sample();
+                void persistProgress();
               }
+            },
+            onPlaybackRateChange: (event: any) => {
+              if (!cancelled && typeof event.data === "number") setPlaybackSpeed(event.data);
+            },
+            onError: (event: any) => {
+              if (cancelled) return;
+              setIsPlaying(false);
+              setPlayerError(youTubeErrorMessage(Number(event.data)));
             },
           },
         });
-      } catch (err) {
-        // fallback
-      }
-    };
-
-    if (!(window as any).YT) {
-      const tag = document.createElement("script");
-      tag.src = "https://www.youtube.com/iframe_api";
-      const firstScriptTag = document.getElementsByTagName("script")[0];
-      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
-      (window as any).onYouTubeIframeAPIReady = initYt;
-    } else {
-      initYt();
-    }
-
-    // Interval to poll YouTube time and calculate watched segments
-    const pollInterval = setInterval(() => {
-      if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === "function") {
-        try {
-          const cur = ytPlayerRef.current.getCurrentTime() || 0;
-          const dur = ytPlayerRef.current.getDuration() || duration;
-          if (dur > 0) setDuration(dur);
-          setCurrentTime(cur);
-          if (isPlaying) {
-            setWatchedSeconds((prev) => Math.min(dur, prev + 1));
-          }
-        } catch {
-          // ignore cross-origin error
+        pollTimer = window.setInterval(sample, 500);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlayerError("Could not load the YouTube player. Check your internet connection or disable any ad-blocker for this site.");
         }
-      }
-    }, 1000);
+      });
 
     return () => {
       cancelled = true;
-      clearInterval(pollInterval);
+      if (pollTimer) clearInterval(pollTimer);
       try {
         ytPlayerRef.current?.destroy?.();
       } catch {
         // ignore
       }
+      ytPlayerRef.current = null;
+      host.innerHTML = "";
     };
-  }, [lecture.platform, isPlaying]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lecture.id, lecture.platform, youTubeId]);
 
   // HTML5 Video Events
   const handleHtml5TimeUpdate = () => {
     const v = videoRef.current;
     if (!v) return;
-    setCurrentTime(v.currentTime);
-    if (v.duration && v.duration > 0) {
-      setDuration(v.duration);
-    }
-    // Calculate verified watched seconds from actual played time ranges
-    let verified = 0;
+    updatePosition(v.currentTime);
+    if (v.duration && Number.isFinite(v.duration)) updateDuration(v.duration);
+    // Verified watched time = previously saved segment merged with ranges actually played now
+    let ranges = seedRanges;
     for (let i = 0; i < v.played.length; i++) {
-      verified += v.played.end(i) - v.played.start(i);
+      ranges = addWatchRange(ranges, v.played.start(i), v.played.end(i));
     }
-    setWatchedSeconds(Math.min(v.duration || verified, verified));
+    commitWatchedRanges(ranges);
   };
 
   const handleHtml5LoadedMetadata = () => {
     const v = videoRef.current;
     if (!v) return;
-    if (v.duration) setDuration(v.duration);
-    if (lecture.progress?.lastPositionSeconds && lecture.progress.lastPositionSeconds > 0) {
-      v.currentTime = lecture.progress.lastPositionSeconds;
+    if (v.duration && Number.isFinite(v.duration)) updateDuration(v.duration);
+    if (resumeAt > 0 && (!v.duration || resumeAt < v.duration - 1)) {
+      v.currentTime = resumeAt;
     }
+    v.play().catch(() => {});
+  };
+
+  const getYtPlayer = () => {
+    const player = ytPlayerRef.current;
+    return player && typeof player.getPlayerState === "function" ? player : null;
   };
 
   const togglePlay = () => {
     if (lecture.platform === "direct" && videoRef.current) {
       if (videoRef.current.paused) {
-        videoRef.current.play();
-        setIsPlaying(true);
+        videoRef.current.play().catch(() => {});
       } else {
         videoRef.current.pause();
-        setIsPlaying(false);
       }
-    } else if (lecture.platform === "youtube" && ytPlayerRef.current) {
+    } else if (lecture.platform === "youtube") {
+      const player = getYtPlayer();
+      if (!player) return;
       try {
-        if (isPlaying) {
-          ytPlayerRef.current.pauseVideo();
+        const state = player.getPlayerState();
+        const YTState = window.YT?.PlayerState;
+        if (state === YTState?.PLAYING || state === YTState?.BUFFERING) {
+          player.pauseVideo();
         } else {
-          ytPlayerRef.current.playVideo();
+          player.playVideo();
         }
       } catch {
         // ignore
@@ -1069,26 +1411,41 @@ function InAppLecturePlayer({
     }
   };
 
-  const skipSeconds = (seconds: number) => {
+  const seekTo = (target: number) => {
+    const max = durationRef.current > 0 ? durationRef.current : Number.MAX_SAFE_INTEGER;
+    const time = Math.max(0, Math.min(max, target));
     if (lecture.platform === "direct" && videoRef.current) {
-      videoRef.current.currentTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + seconds));
-    } else if (lecture.platform === "youtube" && ytPlayerRef.current) {
+      videoRef.current.currentTime = time;
+    } else if (lecture.platform === "youtube") {
+      const player = getYtPlayer();
+      if (!player) return;
       try {
-        const cur = ytPlayerRef.current.getCurrentTime() || 0;
-        ytPlayerRef.current.seekTo(Math.max(0, Math.min(duration, cur + seconds)), true);
+        player.seekTo(time, true);
       } catch {
-        // ignore
+        return;
       }
     }
+    updatePosition(time);
+  };
+
+  const skipSeconds = (seconds: number) => {
+    seekTo(positionRef.current + seconds);
+  };
+
+  const handleTimelineClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (durationRef.current <= 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    seekTo(fraction * durationRef.current);
   };
 
   const changeSpeed = (speed: number) => {
     setPlaybackSpeed(speed);
     if (lecture.platform === "direct" && videoRef.current) {
       videoRef.current.playbackRate = speed;
-    } else if (lecture.platform === "youtube" && ytPlayerRef.current) {
+    } else if (lecture.platform === "youtube") {
       try {
-        ytPlayerRef.current.setPlaybackRate(speed);
+        getYtPlayer()?.setPlaybackRate(speed);
       } catch {
         // ignore
       }
@@ -1103,6 +1460,11 @@ function InAppLecturePlayer({
     } else {
       document.exitFullscreen().catch(() => {});
     }
+  };
+
+  const handleClose = () => {
+    // Save the latest position before the parent reloads lecture progress
+    void persistProgress().finally(onClose);
   };
 
   return (
@@ -1127,14 +1489,27 @@ function InAppLecturePlayer({
             </div>
             <h2 className="mt-1 truncate text-base font-semibold text-[#f2efe8]">{lecture.title}</h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-lg border border-primary/25 text-primary hover:bg-white/10"
-            aria-label="Close lecture"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {lecture.videoUrl && (
+              <a
+                href={lecture.videoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary hover:text-black transition-colors"
+                title="Open video directly in YouTube / host site"
+              >
+                <ExternalLink size={13} /> Open Source Video
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={handleClose}
+              className="grid h-8 w-8 place-items-center rounded-lg border border-primary/25 text-primary hover:bg-white/10"
+              aria-label="Close lecture"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Video Canvas Container */}
@@ -1143,26 +1518,47 @@ function InAppLecturePlayer({
           className="relative flex-1 bg-black flex items-center justify-center overflow-hidden min-h-[300px]"
         >
           {lecture.platform === "youtube" ? (
-            <iframe
-              id="youtube-player-frame"
-              ref={iframeRef}
-              src={lecture.embedUrl}
-              title={lecture.title}
-              className="h-full w-full border-0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-            />
+            <>
+              {/* Host for the YouTube IFrame API player (populated imperatively) */}
+              <div
+                id="youtube-player-host"
+                ref={ytHostRef}
+                className="absolute inset-0 [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:border-0"
+              />
+              {!ytReady && !playerError && (
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-primary/80">
+                  <LoaderCircle size={28} className="animate-spin" />
+                  <span className="text-xs">Loading video player…</span>
+                </div>
+              )}
+              {playerError && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 p-6 text-center">
+                  <AlertTriangle size={30} className="text-amber-400" />
+                  <p className="max-w-md text-sm text-[#f2efe8]">{playerError}</p>
+                  {lecture.videoUrl && (
+                    <a
+                      href={lecture.videoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-black hover:opacity-90"
+                    >
+                      <ExternalLink size={13} /> Open Source Video
+                    </a>
+                  )}
+                </div>
+              )}
+            </>
           ) : lecture.platform === "gdrive" ? (
             <div className="relative h-full w-full flex flex-col">
               <div className="bg-amber-950/70 border-b border-amber-500/30 p-2 text-center text-xs text-amber-200">
                 <AlertCircle size={14} className="inline mr-1 -mt-0.5" />
-                Google Drive Embedded Preview. Note: Automatic playback progress tracking is unavailable for Google Drive iframes.
+                Google Drive Embedded Preview. Click the play button inside the frame to play.
               </div>
               <iframe
                 src={lecture.embedUrl}
                 title={lecture.title}
                 className="h-full w-full border-0 flex-1"
-                allow="autoplay"
+                allow="autoplay; fullscreen"
                 allowFullScreen
               />
             </div>
@@ -1170,10 +1566,20 @@ function InAppLecturePlayer({
             <video
               ref={videoRef}
               src={lecture.videoUrl}
+              autoPlay
+              controls
               onTimeUpdate={handleHtml5TimeUpdate}
               onLoadedMetadata={handleHtml5LoadedMetadata}
               onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
+              onPause={() => {
+                setIsPlaying(false);
+                void persistProgress();
+              }}
+              onEnded={() => {
+                setIsPlaying(false);
+                void persistProgress();
+              }}
+              onRateChange={() => videoRef.current && setPlaybackSpeed(videoRef.current.playbackRate)}
               className="h-full w-full max-h-full object-contain"
               playsInline
             />
@@ -1182,6 +1588,7 @@ function InAppLecturePlayer({
               src={lecture.embedUrl}
               title={lecture.title}
               className="h-full w-full border-0"
+              allow="autoplay; fullscreen"
               allowFullScreen
             />
           )}
@@ -1190,19 +1597,27 @@ function InAppLecturePlayer({
         {/* Interactive Playback Control Bar for supported players */}
         {(lecture.platform === "direct" || lecture.platform === "youtube") && (
           <div className="border-t border-primary/20 bg-black/60 px-5 py-3">
-            {/* Timeline Progress */}
+            {/* Timeline Progress (click to seek) */}
             <div className="mb-2.5 flex items-center gap-3">
               <span className="text-[11px] font-mono text-primary/80 min-w-12">
-                {formatDuration(currentTime)}
+                {formatClock(currentTime)}
               </span>
-              <div className="relative flex-1 h-2 rounded bg-white/10 overflow-hidden cursor-pointer">
+              <div
+                className="relative flex-1 h-2 rounded bg-white/10 overflow-hidden cursor-pointer"
+                onClick={handleTimelineClick}
+                role="slider"
+                aria-label="Seek"
+                aria-valuemin={0}
+                aria-valuemax={Math.round(duration)}
+                aria-valuenow={Math.round(currentTime)}
+              >
                 <div
                   className="h-full bg-primary transition-all duration-150"
-                  style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                  style={{ width: `${duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0}%` }}
                 />
               </div>
               <span className="text-[11px] font-mono text-[#c9c4b5] min-w-12 text-right">
-                {formatDuration(duration)}
+                {duration > 0 ? formatClock(duration) : "--:--"}
               </span>
             </div>
 

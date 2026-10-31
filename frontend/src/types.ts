@@ -77,6 +77,18 @@ export type ClassroomDraft = {
   description?: string;
 };
 
+export type ClassroomMember = {
+  userId: string;
+  name: string;
+  email?: string;
+  picture?: string;
+  role: "OWNER" | "ASSISTANT" | "STUDENT" | string;
+  userRole?: string;
+  joinedAt?: string;
+  createdAt?: string;
+  status?: string;
+};
+
 export type Classroom = {
   id: string;
   name: string;
@@ -86,11 +98,12 @@ export type Classroom = {
   description: string;
   joinCode?: string;
   ownerId?: string;
+  ownerName?: string;
   status?: string;
   memberCount?: number;
   createdAt?: string;
   curriculum?: { modules: unknown[] };
-  members?: { userId: string; name: string; role: string; joinedAt?: string }[];
+  members?: ClassroomMember[];
 };
 
 export type CurriculumConcept = {

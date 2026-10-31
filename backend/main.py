@@ -29,6 +29,8 @@ from models import (
     ClassroomLectureProgressIn,
     ClassroomLectureUpdateIn,
     ClassroomMaterialUpdateIn,
+    ClassroomMemberAddIn,
+    ClassroomMemberRoleUpdateIn,
     ClassroomPostIn,
     ClassroomReplyIn,
     ClassroomSubmissionIn,
@@ -266,20 +268,37 @@ def _classroom_editor(classroom: dict, user: dict) -> bool:
     )
 
 
-def classroom_payload(doc: dict) -> dict:
+def classroom_payload(doc: dict, include_email: bool = True) -> dict:
     payload = {key: value for key, value in doc.items() if key != "_id"}
     payload["id"] = str(doc["_id"])
     members = doc.get("members", [])
     payload["memberCount"] = len(members)
-    payload["members"] = [
-        {
-            "userId": member.get("userId"),
-            "role": member.get("role", "STUDENT"),
+    user_ids = [m.get("userId") for m in members if m.get("userId")]
+    user_docs = {
+        u["_id"]: u
+        for u in db.users.find({"_id": {"$in": user_ids}})
+    } if user_ids else {}
+    enriched_members = []
+    for member in members:
+        uid = member.get("userId")
+        user_doc = user_docs.get(uid) or {}
+        role = member.get("role", "STUDENT")
+        if uid == doc.get("ownerId") and role != "OWNER":
+            role = "OWNER"
+        m_data = {
+            "userId": uid,
+            "role": role,
             "joinedAt": member.get("joinedAt"),
-            "name": (db.users.find_one({"_id": member.get("userId")}) or {}).get("name", "Class member"),
+            "name": user_doc.get("name") or "Class member",
+            "picture": user_doc.get("picture") or "",
+            "userRole": normalize_role(user_doc.get("role")),
+            "createdAt": user_doc.get("createdAt"),
+            "status": "Active",
         }
-        for member in members
-    ]
+        if include_email:
+            m_data["email"] = user_doc.get("email") or ""
+        enriched_members.append(m_data)
+    payload["members"] = enriched_members
     payload["status"] = doc.get("status", "active")
     owner = db.users.find_one({"_id": doc.get("ownerId")}) if doc.get("ownerId") else None
     if owner:
@@ -304,7 +323,7 @@ def create_classroom(payload: dict, user: dict):
         "members": [{"userId": user["id"], "role": "OWNER", "joinedAt": created_at}],
     }
     db.classrooms.insert_one(classroom)
-    return classroom_payload(classroom)
+    return classroom_payload(classroom, include_email=False)
 
 
 def _purge_classroom_data(classroom_id: str):
@@ -438,6 +457,135 @@ def require_classroom_editor(classroom_id: str, user: dict):
     if not _classroom_editor(classroom, user):
         raise err(403, "forbidden", "Only the classroom owner or authorized faculty can edit it.")
     return classroom
+
+
+def require_classroom_owner(classroom_id: str, user: dict):
+    classroom = db.classrooms.find_one({"_id": classroom_id})
+    if not classroom or classroom.get("deletionState") == "pending":
+        raise err(404, "not_found", "Classroom not found.")
+    role = require_role(user, "ADMIN", "FACULTY", "STUDENT")
+    if role != "ADMIN" and classroom.get("ownerId") != user["id"]:
+        raise err(403, "forbidden", "Only the classroom owner can perform this administrative action.")
+    return classroom
+
+
+def get_classroom_members(classroom_id: str, user: dict):
+    classroom = get_classroom(classroom_id, user)
+    return {
+        "classroomId": classroom_id,
+        "members": classroom.get("members", []),
+        "ownerId": classroom.get("ownerId"),
+        "joinCode": classroom.get("joinCode"),
+        "memberCount": len(classroom.get("members", [])),
+    }
+
+
+def add_classroom_member(classroom_id: str, payload: dict, user: dict):
+    classroom = require_classroom_owner(classroom_id, user)
+    email = str(payload.get("email") or "").strip().lower()
+    user_id = str(payload.get("userId") or "").strip()
+    role = str(payload.get("role") or "STUDENT").strip().upper()
+    if role not in {"STUDENT", "ASSISTANT"}:
+        role = "STUDENT"
+
+    target_user = None
+    if email:
+        target_user = db.users.find_one({"email": email})
+    elif user_id:
+        target_user = db.users.find_one({"_id": user_id})
+
+    if not target_user:
+        raise err(
+            404,
+            "user_not_found",
+            f"No registered user found with email '{email}'. The user must sign in to Curiosity first, or you can share the classroom join code ({classroom.get('joinCode', '')}).",
+        )
+
+    target_id = target_user["_id"]
+    current_members = list(classroom.get("members", []))
+    if any(m.get("userId") == target_id for m in current_members):
+        raise err(409, "already_member", f"{target_user.get('name', 'This user')} is already a member of this classroom.")
+
+    created_at = now_iso()
+    if hasattr(db, "add_member"):
+        db.add_member(classroom_id, target_id, role, created_at)
+    else:
+        current_members.append({"userId": target_id, "role": role, "joinedAt": created_at})
+        db.classrooms.update_one({"_id": classroom_id}, {"$set": {"members": current_members, "updatedAt": created_at}})
+
+    faculty_ids = list(classroom.get("facultyIds") or [])
+    if role == "ASSISTANT":
+        if target_id not in faculty_ids:
+            faculty_ids.append(target_id)
+            db.classrooms.update_one({"_id": classroom_id}, {"$set": {"facultyIds": faculty_ids}})
+
+    updated_classroom = db.classrooms.find_one({"_id": classroom_id})
+    return classroom_payload(updated_classroom)
+
+
+def update_classroom_member_role(classroom_id: str, target_user_id: str, payload: dict, user: dict):
+    classroom = require_classroom_owner(classroom_id, user)
+    new_role = str(payload.get("role") or "").strip().upper()
+    if new_role not in {"STUDENT", "ASSISTANT", "OWNER"}:
+        raise err(400, "invalid_role", "Classroom role must be STUDENT, ASSISTANT, or OWNER.")
+
+    current_members = list(classroom.get("members", []))
+    target_member = next((m for m in current_members if m.get("userId") == target_user_id), None)
+    if not target_member:
+        raise err(404, "not_found", "User is not a member of this classroom.")
+
+    if target_user_id == classroom.get("ownerId") and new_role != "OWNER":
+        other_owners = [
+            m for m in current_members
+            if m.get("userId") != target_user_id and m.get("role") == "OWNER"
+        ]
+        if not other_owners:
+            raise err(400, "sole_owner", "There must always be at least one classroom owner. Promote another member to Owner before changing your role.")
+
+    if hasattr(db, "update_member_role"):
+        db.update_member_role(classroom_id, target_user_id, new_role)
+    else:
+        for m in current_members:
+            if m.get("userId") == target_user_id:
+                m["role"] = new_role
+        db.classrooms.update_one({"_id": classroom_id}, {"$set": {"members": current_members, "updatedAt": now_iso()}})
+
+    faculty_ids = list(classroom.get("facultyIds") or [])
+    if new_role == "ASSISTANT" and target_user_id not in faculty_ids:
+        faculty_ids.append(target_user_id)
+        db.classrooms.update_one({"_id": classroom_id}, {"$set": {"facultyIds": faculty_ids}})
+    elif new_role == "STUDENT" and target_user_id in faculty_ids:
+        faculty_ids = [fid for fid in faculty_ids if fid != target_user_id]
+        db.classrooms.update_one({"_id": classroom_id}, {"$set": {"facultyIds": faculty_ids}})
+    elif new_role == "OWNER" and target_user_id not in faculty_ids:
+        faculty_ids.append(target_user_id)
+        db.classrooms.update_one({"_id": classroom_id}, {"$set": {"facultyIds": faculty_ids}})
+
+    updated_classroom = db.classrooms.find_one({"_id": classroom_id})
+    return classroom_payload(updated_classroom)
+
+
+def remove_classroom_member(classroom_id: str, target_user_id: str, user: dict):
+    classroom = require_classroom_owner(classroom_id, user)
+    if target_user_id == classroom.get("ownerId"):
+        raise err(400, "cannot_remove_owner", "The classroom owner cannot be removed from their own classroom. Delete the classroom or transfer ownership first.")
+
+    current_members = list(classroom.get("members", []))
+    target_member = next((m for m in current_members if m.get("userId") == target_user_id), None)
+    if not target_member:
+        raise err(404, "not_found", "User is not a member of this classroom.")
+
+    if hasattr(db, "remove_member"):
+        db.remove_member(classroom_id, target_user_id)
+    else:
+        remaining = [m for m in current_members if m.get("userId") != target_user_id]
+        db.classrooms.update_one({"_id": classroom_id}, {"$set": {"members": remaining, "updatedAt": now_iso()}})
+
+    faculty_ids = [fid for fid in (classroom.get("facultyIds") or []) if fid != target_user_id]
+    db.classrooms.update_one({"_id": classroom_id}, {"$set": {"facultyIds": faculty_ids}})
+
+    return {"removed": True, "userId": target_user_id, "classroomId": classroom_id}
+
 
 
 def get_classroom_curriculum(classroom_id: str, user: dict):
@@ -2379,6 +2527,31 @@ def get_classroom_route(classroom_id: str, user: dict = Depends(current_user)):
     return get_classroom(classroom_id, user)
 
 
+@app.get("/api/classrooms/{classroom_id}/members")
+def get_classroom_members_route(classroom_id: str, user: dict = Depends(current_user)):
+    return get_classroom_members(classroom_id, user)
+
+
+@app.post("/api/classrooms/{classroom_id}/members")
+def add_classroom_member_route(classroom_id: str, body: ClassroomMemberAddIn, user: dict = Depends(current_user)):
+    return add_classroom_member(classroom_id, body.model_dump(), user)
+
+
+@app.patch("/api/classrooms/{classroom_id}/members/{user_id}/role")
+def update_classroom_member_role_route(classroom_id: str, user_id: str, body: ClassroomMemberRoleUpdateIn, user: dict = Depends(current_user)):
+    return update_classroom_member_role(classroom_id, user_id, body.model_dump(), user)
+
+
+@app.post("/api/classrooms/{classroom_id}/members/{user_id}/role")
+def update_classroom_member_role_post_route(classroom_id: str, user_id: str, body: ClassroomMemberRoleUpdateIn, user: dict = Depends(current_user)):
+    return update_classroom_member_role(classroom_id, user_id, body.model_dump(), user)
+
+
+@app.delete("/api/classrooms/{classroom_id}/members/{user_id}")
+def remove_classroom_member_route(classroom_id: str, user_id: str, user: dict = Depends(current_user)):
+    return remove_classroom_member(classroom_id, user_id, user)
+
+
 @app.get("/api/classrooms/{classroom_id}/curriculum")
 def get_classroom_curriculum_route(classroom_id: str, user: dict = Depends(current_user)):
     return get_classroom_curriculum(classroom_id, user)
@@ -2558,7 +2731,7 @@ def list_classroom_materials(classroom_id: str, user: dict):
     return result
 
 
-def download_classroom_material(classroom_id: str, material_id: str, user: dict):
+def download_classroom_material(classroom_id: str, material_id: str, user: dict, inline: bool = False):
     get_classroom(classroom_id, user)
     material = db.classroom_materials.find_one({"_id": material_id, "classroomId": classroom_id})
     if not material:
@@ -2566,10 +2739,23 @@ def download_classroom_material(classroom_id: str, material_id: str, user: dict)
     storage_path = material.get("storagePath")
     if not storage_path or not os.path.exists(storage_path):
         raise err(404, "file_missing", "The requested file is no longer available on disk.")
+
+    filename = material.get("filename", "download")
+    ext = os.path.splitext(filename)[1].lower()
+    media_type = material.get("fileType") or "application/octet-stream"
+    if ext == ".pdf":
+        media_type = "application/pdf"
+    elif ext in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+        media_type = f"image/{ext.lstrip('.')}"
+    elif ext in {".txt", ".md", ".csv"}:
+        media_type = "text/plain"
+
+    disposition = "inline" if inline else "attachment"
     return FileResponse(
         path=storage_path,
-        filename=material.get("filename", "download"),
-        media_type=material.get("fileType", "application/octet-stream"),
+        media_type=media_type,
+        content_disposition_type=disposition,
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
     )
 
 
@@ -2613,6 +2799,8 @@ def create_classroom_lecture(classroom_id: str, payload: ClassroomLectureIn, use
     if not info["valid"]:
         raise err(400, "invalid_video_url", info["message"])
 
+    duration = payload.durationSeconds if (payload.durationSeconds and payload.durationSeconds > 0) else (info.get("durationSeconds") or 0)
+
     lecture_id = f"lec_{uuid.uuid4().hex[:12]}"
     if payload.position is None or payload.position == 0:
         existing = list(db.classroom_lectures.find({"classroomId": classroom_id}))
@@ -2628,7 +2816,7 @@ def create_classroom_lecture(classroom_id: str, payload: ClassroomLectureIn, use
         "videoUrl": payload.videoUrl.strip(),
         "platform": info["platform"],
         "embedUrl": info["embedUrl"],
-        "durationSeconds": payload.durationSeconds or 0,
+        "durationSeconds": duration,
         "completionThreshold": max(1, min(100, payload.completionThreshold)),
         "position": pos,
         "trackingSupported": info["trackingSupported"],
@@ -2648,32 +2836,32 @@ def list_classroom_lectures(classroom_id: str, user: dict):
     lectures.sort(key=lambda l: (l.get("position", 0), l.get("createdAt", now())))
 
     progress_by_lecture = {}
-    if not _classroom_editor(classroom, user):
-        rows = list(db.classroom_lecture_progress.find({"classroomId": classroom_id, "studentId": user["id"]}))
-        progress_by_lecture = {r["lectureId"]: r for r in rows}
+    rows = list(db.classroom_lecture_progress.find({"classroomId": classroom_id, "studentId": user["id"]}))
+    progress_by_lecture = {r["lectureId"]: r for r in rows}
 
     result = []
     for l in lectures:
         item = {k: v for k, v in l.items() if k != "_id"}
         item["id"] = l["_id"]
-        if not _classroom_editor(classroom, user):
-            p = progress_by_lecture.get(l["_id"])
-            if p:
-                item["progress"] = {
-                    "watchedSeconds": p.get("watchedSeconds", 0.0),
-                    "lastPositionSeconds": p.get("lastPositionSeconds", 0.0),
-                    "watchPercent": p.get("watchPercent", 0.0),
-                    "completed": p.get("completed", False),
-                    "status": "completed" if p.get("completed") else ("in_progress" if p.get("watchedSeconds", 0) > 0 else "not_started"),
-                }
-            else:
-                item["progress"] = {
-                    "watchedSeconds": 0.0,
-                    "lastPositionSeconds": 0.0,
-                    "watchPercent": 0.0,
-                    "completed": False,
-                    "status": "not_started",
-                }
+        if item.get("platform") == "gdrive":
+            item["trackingSupported"] = True
+        p = progress_by_lecture.get(l["_id"])
+        if p:
+            item["progress"] = {
+                "watchedSeconds": p.get("watchedSeconds", 0.0),
+                "lastPositionSeconds": p.get("lastPositionSeconds", 0.0),
+                "watchPercent": p.get("watchPercent", 0.0),
+                "completed": p.get("completed", False),
+                "status": "completed" if p.get("completed") else ("in_progress" if p.get("watchedSeconds", 0) > 0 else "not_started"),
+            }
+        else:
+            item["progress"] = {
+                "watchedSeconds": 0.0,
+                "lastPositionSeconds": 0.0,
+                "watchPercent": 0.0,
+                "completed": False,
+                "status": "not_started",
+            }
         result.append(item)
     return result
 
@@ -2711,7 +2899,7 @@ def update_classroom_lecture(classroom_id: str, lecture_id: str, payload: Classr
         updates["videoUrl"] = payload.videoUrl.strip()
         updates["platform"] = info["platform"]
         updates["embedUrl"] = info["embedUrl"]
-        updates["trackingSupported"] = info["trackingSupported"]
+        updates["trackingSupported"] = True if info["platform"] == "gdrive" else info["trackingSupported"]
 
     db.classroom_lectures.update_one({"_id": lecture_id}, {"$set": updates})
     updated = db.classroom_lectures.find_one({"_id": lecture_id}) or lecture
@@ -2736,14 +2924,11 @@ def record_lecture_progress(classroom_id: str, lecture_id: str, payload: Classro
     if not lecture:
         raise err(404, "not_found", "Lecture not found.")
 
-    if not lecture.get("trackingSupported", True):
-        raise err(400, "tracking_unsupported", "Automatic playback tracking is not supported for this video source.")
-
     total_dur = payload.totalDurationSeconds
     if total_dur <= 0:
         total_dur = float(lecture.get("durationSeconds", 0))
     if total_dur <= 0:
-        raise err(400, "invalid_duration", "Total video duration must be greater than zero to record watch progress.")
+        total_dur = 3600.0
 
     watched = min(payload.watchedSeconds, total_dur)
     last_pos = min(payload.lastPositionSeconds, total_dur)
@@ -2906,8 +3091,13 @@ def list_classroom_materials_route(classroom_id: str, user: dict = Depends(curre
 
 
 @app.get("/api/classrooms/{classroom_id}/materials/{material_id}/download")
-def download_classroom_material_route(classroom_id: str, material_id: str, user: dict = Depends(current_user)):
-    return download_classroom_material(classroom_id, material_id, user)
+def download_classroom_material_route(classroom_id: str, material_id: str, inline: bool = False, user: dict = Depends(current_user)):
+    return download_classroom_material(classroom_id, material_id, user, inline=inline)
+
+
+@app.get("/api/classrooms/{classroom_id}/materials/{material_id}/view")
+def view_classroom_material_route(classroom_id: str, material_id: str, user: dict = Depends(current_user)):
+    return download_classroom_material(classroom_id, material_id, user, inline=True)
 
 
 @app.patch("/api/classrooms/{classroom_id}/materials/{material_id}")

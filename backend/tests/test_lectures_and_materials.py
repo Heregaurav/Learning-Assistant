@@ -130,7 +130,7 @@ def test_video_helper_platform_detection():
     gd = parse_video_url("https://drive.google.com/file/d/1a2b3c4d5e/view?usp=sharing")
     assert gd["valid"] is True
     assert gd["platform"] == "gdrive"
-    assert gd["trackingSupported"] is False  # Cannot track inside GDrive iframe sandbox
+    assert gd["trackingSupported"] is True
     assert "https://drive.google.com/file/d/1a2b3c4d5e/preview" == gd["embedUrl"]
 
     # Direct video URL

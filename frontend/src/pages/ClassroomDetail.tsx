@@ -19,6 +19,7 @@ import ClassworkPanel from "./ClassworkPanel";
 import ClassroomInsights from "./ClassroomInsights";
 import ClassroomStream from "./ClassroomStream";
 import ClassroomLectures from "./ClassroomLectures";
+import ClassroomPeople from "../components/ClassroomPeople";
 import Learn from "./Learn";
 import { SkeletonClassroom } from "../components/Skeletons";
 import type { ClassroomCurriculum, ClassroomProgress, CurriculumTopic, Role } from "../types";
@@ -850,19 +851,14 @@ export default function ClassroomDetail({ user }: Props) {
       {activeTab === "classwork" && user && <ClassworkPanel classroomId={classroomId} canEdit={canEdit} />}
       {activeTab === "lectures" && user && <ClassroomLectures classroomId={classroomId} canEdit={canEdit} user={user} />}
       {activeTab === "stream" && user && <ClassroomStream classroomId={classroomId} canAnnounce={canEdit} />}
-      {activeTab === "people" && (
-        <section className="mt-6">
-          <h2 className="text-xl font-semibold">People</h2>
-          <div className="mt-3 divide-y divide-primary/15 border-y border-primary/15">
-            {(data.classroom.members ?? []).map((member) => (
-              <div key={member.userId} className="flex items-center justify-between gap-3 py-3 text-sm">
-                <span className="truncate">{member.name || "Class member"}{member.userId === user?.id ? " · You" : ""}</span>
-                <span className="text-xs uppercase text-primary/70">{member.role}</span>
-              </div>
-            ))}
-            {(data.classroom.members ?? []).length === 0 && <p className="py-5 text-sm text-primary/70">No classroom members yet.</p>}
-          </div>
-        </section>
+      {activeTab === "people" && data && (
+        <ClassroomPeople
+          classroomId={classroomId}
+          classroom={data.classroom}
+          user={user}
+          isOwner={canEdit}
+          onMembersUpdated={() => refresh({ silent: true })}
+        />
       )}
       {((activeTab === "progress" && !canEdit) || (activeTab === "analytics" && canEdit)) && user && <ClassroomInsights classroomId={classroomId} canEdit={canEdit} user={user} />}
       </div>

@@ -255,11 +255,6 @@ export default function App() {
                 <NavLink to="/classrooms" onClick={() => setMobileMenuOpen(false)}>
                   Classrooms
                 </NavLink>
-                {user.role === "ADMIN" && (
-                  <NavLink to="/admin/users" onClick={() => setMobileMenuOpen(false)}>
-                    Admin
-                  </NavLink>
-                )}
                 <NavLink to="/history" onClick={() => setMobileMenuOpen(false)}>
                   History
                 </NavLink>

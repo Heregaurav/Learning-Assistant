@@ -241,3 +241,14 @@ class ClassroomLectureProgressIn(BaseModel):
     lastPositionSeconds: float = Field(ge=0)
     totalDurationSeconds: float = Field(ge=0)
 
+
+class ClassroomMemberAddIn(BaseModel):
+    email: Optional[str] = Field(default=None, max_length=255)
+    userId: Optional[str] = Field(default=None, max_length=255)
+    role: Literal["STUDENT", "ASSISTANT"] = "STUDENT"
+
+
+class ClassroomMemberRoleUpdateIn(BaseModel):
+    role: Literal["STUDENT", "ASSISTANT", "OWNER"]
+
+
