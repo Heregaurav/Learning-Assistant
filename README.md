@@ -118,7 +118,7 @@ npm run dev
 
 ## Why this architecture matters
 
-This project is not just a chatbot. It is a system designed to turn AI-generated content into durable educational state. The architecture keeps the app reliable by separating:
+This project is not just a simple  chatbot. It is a system designed to turn AI-generated content into durable educational state. The architecture keeps the app reliable by separating:
 
 - the user interface
 - the API layer
